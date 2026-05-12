@@ -119,6 +119,24 @@ cargo run -- reindex /path/to/docs
 
 API keys are read from environment variables, not stored in SQLite. Changing provider or model requires `reindex` so stored vectors match query vectors.
 
+## Desktop app
+
+A Tauri 2 desktop shell sits in `src-tauri/` with the frontend in `dist/`. It reuses the same Rust core (search, ingest, embeddings, parsers) through `#[tauri::command]` handlers.
+
+```bash
+cargo build --manifest-path src-tauri/Cargo.toml
+./target/debug/local-ai-memory   # dev run
+```
+
+The UI follows a macOS aesthetic: 220 px sidebar, traffic-light inset overlay titlebar, three sections (Search · Library · Settings), drag-and-drop ingest, instant search with citations, embedding-provider switcher and parser diagnostics. Light/dark mode follows the system. No npm; everything ships from `dist/` as static assets.
+
+For a signed `.dmg` on macOS:
+
+```bash
+cargo install tauri-cli --version "^2.0"
+cargo tauri build
+```
+
 ## Interactive TUI
 
 ```bash

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local AI Memory</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-section="search">
+    <aside class="sidebar">
+      <header class="brand">
+        <div class="brand-mark"></div>
+        <div class="brand-text">
+          <strong>Memory</strong>
+          <span>local · private</span>
+        </div>
+      </header>
+      <nav class="nav">
+        <button class="nav-item is-active" data-target="search">
+          <span class="nav-glyph">⌕</span>
+          <span>Search</span>
+        </button>
+        <button class="nav-item" data-target="library">
+          <span class="nav-glyph">▤</span>
+          <span>Library</span>
+        </button>
+        <button class="nav-item" data-target="settings">
+          <span class="nav-glyph">◉</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="status-pill" class="pill">Loading…</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="titlebar"></header>
+
+      <section class="panel" data-panel="search">
+        <div class="search-bar">
+          <input
+            id="search-input"
+            type="search"
+            placeholder="Ask your memory…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="budget-group" role="tablist" aria-label="Token budget">
+            <button class="chip is-active" data-budget="low">Focused</button>
+            <button class="chip" data-budget="normal">Balanced</button>
+            <button class="chip" data-budget="wide">Wide</button>
+          </div>
+        </div>
+        <div id="search-empty" class="empty">
+          <h2>Search your memory</h2>
+          <p>Type a question. Results are grounded with citations and live entirely on this device.</p>
+        </div>
+        <div id="search-results" class="results" hidden></div>
+      </section>
+
+      <section class="panel" data-panel="library" hidden>
+        <div
+          id="dropzone"
+          class="dropzone"
+          tabindex="0"
+          aria-label="Drop files to index"
+        >
+          <div class="dropzone-inner">
+            <div class="dropzone-glyph">↥</div>
+            <h2>Drop files or a folder here</h2>
+            <p>Markdown, PDF, DOCX, PPTX, XLSX, HTML, CSV, plain text. Stays local.</p>
+            <button id="dropzone-browse" class="btn-primary">Choose files…</button>
+          </div>
+        </div>
+        <div class="library-meta">
+          <div class="meta-card">
+            <span class="meta-label">Indexed documents</span>
+            <span id="meta-ready" class="meta-value">—</span>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">Errors</span>
+            <span id="meta-error" class="meta-value">—</span>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">Jobs in queue</span>
+            <span id="meta-jobs" class="meta-value">—</span>
+          </div>
+        </div>
+        <div id="ingest-log" class="ingest-log"></div>
+      </section>
+
+      <section class="panel" data-panel="settings" hidden>
+        <div class="settings-section">
+          <h3>Embeddings</h3>
+          <p class="muted">Pick where embeddings come from. Changing provider or model requires a reindex.</p>
+          <div class="provider-grid">
+            <button class="provider" data-provider="local">
+              <strong>Local</strong>
+              <span>Deterministic, offline, no network</span>
+            </button>
+            <button class="provider" data-provider="ollama">
+              <strong>Ollama</strong>
+              <span>nomic-embed-text · localhost</span>
+            </button>
+            <button class="provider" data-provider="openai">
+              <strong>OpenAI</strong>
+              <span>text-embedding-3-small</span>
+            </button>
+            <button class="provider" data-provider="openrouter">
+              <strong>OpenRouter</strong>
+              <span>openai/text-embedding-3-small</span>
+            </button>
+          </div>
+          <pre id="embedding-detail" class="detail"></pre>
+        </div>
+        <div class="settings-section">
+          <h3>Parsers</h3>
+          <pre id="parser-detail" class="detail"></pre>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>

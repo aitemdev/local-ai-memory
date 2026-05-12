@@ -1,0 +1,15 @@
+pub mod chunker;
+pub mod cli;
+pub mod db;
+pub mod embeddings;
+pub mod extractors;
+pub mod hash;
+pub mod http;
+pub mod indexer;
+pub mod mcp;
+pub mod paths;
+pub mod reranker;
+pub mod settings;
+pub mod tui;
+pub mod vector_store;
+pub mod watcher;

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "Local AI Memory",
+  "version": "0.1.0",
+  "identifier": "dev.aitemdev.local-ai-memory",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Local AI Memory",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 540,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "transparent": false,
+        "hiddenTitle": true,
+        "fullscreen": false,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "category": "Productivity",
+    "copyright": "© 2026 aitemdev",
+    "shortDescription": "Local-first personal memory for AI tools",
+    "longDescription": "Search and ground AI conversations in your own documents. All data stays on your machine."
+  }
+}

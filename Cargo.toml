@@ -3,6 +3,10 @@ name = "local-ai-memory"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "local_ai_memory"
+path = "rust/lib.rs"
+
 [[bin]]
 name = "mem"
 path = "rust/main.rs"

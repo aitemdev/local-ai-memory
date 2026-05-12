@@ -1,18 +1,4 @@
-mod chunker;
-mod cli;
-mod db;
-mod embeddings;
-mod extractors;
-mod hash;
-mod http;
-mod indexer;
-mod mcp;
-mod paths;
-mod reranker;
-mod settings;
-mod tui;
-mod vector_store;
-mod watcher;
+use local_ai_memory::cli;
 
 fn main() {
     if let Err(error) = cli::run() {
