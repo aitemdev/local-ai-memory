@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local AI Memory</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="toolbar">
+        <div>
+          <h1>Local AI Memory</h1>
+          <p>Local-first document memory for AI tools.</p>
+        </div>
+        <button id="refresh">Refresh</button>
+      </section>
+
+      <section class="ingest">
+        <input id="path" placeholder="C:\Users\you\Documents\notes">
+        <button id="add">Add path</button>
+      </section>
+
+      <section class="search">
+        <input id="query" placeholder="Search your indexed memory">
+        <select id="budget">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="wide">Wide</option>
+        </select>
+        <button id="search">Search</button>
+      </section>
+
+      <section class="status">
+        <h2>Status</h2>
+        <pre id="status">Loading...</pre>
+      </section>
+
+      <section class="results">
+        <h2>Results</h2>
+        <div id="results"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

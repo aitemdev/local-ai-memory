@@ -1,0 +1,16 @@
+{
+  "name": "local-ai-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mem": "./bin/mem.js"
+  },
+  "scripts": {
+    "mem": "node ./bin/mem.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
