@@ -119,6 +119,35 @@ cargo run -- reindex /path/to/docs
 
 API keys are read from environment variables, not stored in SQLite. Changing provider or model requires `reindex` so stored vectors match query vectors.
 
+## Persistent daemon
+
+```bash
+cargo run -- daemon --port 7456
+```
+
+The daemon is the long-running service that holds the index alive across desktop launches, agent sessions, and CLI calls. On start it:
+
+- Resumes watchers from the `watch.folders` setting (initial scan + live debounce).
+- Serves the HTTP API on `localhost:7456`.
+- Logs every ingest event as JSON on stderr.
+
+HTTP endpoints:
+
+| Method | Path | Body / query | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/status` | – | Document and job counts |
+| GET | `/api/search` | `?q=...&budget=low|normal|wide&limit=N` | Hybrid search |
+| POST | `/api/add` | `{"paths":[...], "force":false}` | Ingest a one-shot batch |
+| POST | `/api/reset` | – | Wipe all documents, chunks, vectors |
+| GET | `/api/parsers` | – | Parser probe |
+| GET | `/api/embeddings` | – | Active embedding config |
+| POST | `/api/embeddings/set` | `{"provider":"ollama","model":"nomic-embed-text",...}` | Switch provider |
+| GET | `/api/watched` | – | List watched folders |
+| POST | `/api/watch` | `{"path":"/abs/path"}` | Start watching |
+| POST | `/api/unwatch` | `{"path":"/abs/path"}` | Stop watching |
+
+The static UI at `public/` is also served from the daemon, so a browser at `http://localhost:7456` becomes a lightweight client.
+
 ## Desktop app
 
 A Tauri 2 desktop shell sits in `src-tauri/` with the frontend in `dist/`. It reuses the same Rust core (search, ingest, embeddings, parsers) through `#[tauri::command]` handlers.

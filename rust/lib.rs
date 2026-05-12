@@ -12,4 +12,5 @@ pub mod reranker;
 pub mod settings;
 pub mod tui;
 pub mod vector_store;
+pub mod watch_manager;
 pub mod watcher;

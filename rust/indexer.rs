@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 use walkdir::WalkDir;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct IngestResult {
     pub file: String,
     pub document_id: String,
@@ -45,18 +45,26 @@ pub fn init_store(base: Option<PathBuf>) -> Result<PathBuf> {
     Ok(paths.base)
 }
 
-pub fn add_path(input: &Path, force: bool, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<IngestResult>> {
-    let files = if input.is_dir() {
+pub fn collect_files(input: &Path) -> Vec<PathBuf> {
+    if input.is_dir() {
         WalkDir::new(input)
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file() && supported_extension(entry.path()))
             .map(|entry| entry.path().to_path_buf())
             .collect()
-    } else {
+    } else if input.is_file() && supported_extension(input) {
         vec![input.to_path_buf()]
-    };
-    files.into_iter().map(|file| ingest_file(&file, force, overrides, base.clone())).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn add_path(input: &Path, force: bool, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<IngestResult>> {
+    collect_files(input)
+        .into_iter()
+        .map(|file| ingest_file(&file, force, overrides, base.clone()))
+        .collect()
 }
 
 pub fn ingest_file(file: &Path, force: bool, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<IngestResult> {
@@ -106,6 +114,32 @@ pub fn search_memory(query: &str, budget: &str, limit: Option<usize>, overrides:
         merged.entry(row.chunk_id.clone()).and_modify(|existing| existing.vector_score = row.vector_score).or_insert(row);
     }
     Ok(apply_budget(rerank(query, merged.into_values().collect()), budget, limit))
+}
+
+pub fn reset_store(base: Option<PathBuf>) -> Result<serde_json::Value> {
+    let (conn, paths) = ensure_store(base.clone())?;
+    let docs: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
+    let chunks: i64 = conn.query_row("SELECT COUNT(*) FROM chunks", [], |row| row.get(0))?;
+    conn.execute("DELETE FROM chunks_fts", [])?;
+    conn.execute("DELETE FROM chunks", [])?;
+    conn.execute("DELETE FROM documents", [])?;
+    conn.execute("DELETE FROM jobs", [])?;
+    conn.execute("DELETE FROM document_versions", [])?;
+    conn.execute("DELETE FROM embeddings", [])?;
+    drop(conn);
+
+    let lance_dir = paths.base.join("lance");
+    if lance_dir.exists() {
+        fs::remove_dir_all(&lance_dir)?;
+    }
+    if paths.canonical.exists() {
+        for entry in fs::read_dir(&paths.canonical)? {
+            let entry = entry?;
+            let p = entry.path();
+            if p.is_file() { fs::remove_file(p)?; }
+        }
+    }
+    Ok(serde_json::json!({ "documents": docs, "chunks": chunks }))
 }
 
 pub fn status(base: Option<PathBuf>) -> Result<serde_json::Value> {

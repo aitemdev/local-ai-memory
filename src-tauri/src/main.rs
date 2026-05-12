@@ -1,14 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod watch_service;
+
 use local_ai_memory::{
     embeddings::{default_model, resolve_config, EmbeddingConfig},
     extractors::parser_status,
-    indexer::{add_path, search_memory, status, SearchResult},
+    indexer::{collect_files, ingest_file, reset_store, search_memory, status, SearchResult},
     settings::{list_settings, set_settings, SettingRow},
 };
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
+    thread,
+};
+use tauri::{AppHandle, Emitter};
+
+static INGEST_CANCEL: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+fn ingest_flag() -> Arc<AtomicBool> {
+    INGEST_CANCEL
+        .get_or_init(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
 
 #[derive(Serialize)]
 struct EmbeddingsView {
@@ -49,16 +68,85 @@ fn app_search(query: String, budget: Option<String>, limit: Option<usize>) -> Re
 }
 
 #[tauri::command]
-fn app_add_paths(paths: Vec<String>) -> Result<Vec<Value>, String> {
-    let mut all = Vec::new();
-    for raw in paths {
-        let path = PathBuf::from(raw);
-        let results = add_path(&path, false, &HashMap::new(), None).map_err(stringify)?;
-        for result in results {
-            all.push(serde_json::to_value(result).map_err(stringify)?);
-        }
+fn app_add_paths(app: AppHandle, paths: Vec<String>) -> Result<usize, String> {
+    let mut files = Vec::new();
+    for raw in &paths {
+        let resolved = PathBuf::from(raw);
+        files.extend(collect_files(&resolved));
     }
-    Ok(all)
+    let total = files.len();
+    if total == 0 {
+        return Err("No supported files in the drop".to_string());
+    }
+    let handle = app.clone();
+    let cancel = ingest_flag();
+    cancel.store(false, Ordering::SeqCst);
+    thread::spawn(move || {
+        let _ = handle.emit("ingest-start", serde_json::json!({ "total": total }));
+        let mut completed = 0usize;
+        for (index, file) in files.into_iter().enumerate() {
+            if cancel.load(Ordering::SeqCst) {
+                let _ = handle.emit(
+                    "ingest-complete",
+                    serde_json::json!({ "total": total, "completed": completed, "cancelled": true }),
+                );
+                return;
+            }
+            let outcome = ingest_file(&file, false, &HashMap::new(), None);
+            let payload = match outcome {
+                Ok(result) => serde_json::json!({
+                    "index": index + 1,
+                    "total": total,
+                    "file": result.file,
+                    "status": result.status,
+                    "chunks": result.chunks,
+                    "error": result.error,
+                }),
+                Err(error) => serde_json::json!({
+                    "index": index + 1,
+                    "total": total,
+                    "file": file.to_string_lossy(),
+                    "status": "error",
+                    "chunks": serde_json::Value::Null,
+                    "error": error.to_string(),
+                }),
+            };
+            let _ = handle.emit("ingest-progress", payload);
+            completed += 1;
+        }
+        let _ = handle.emit(
+            "ingest-complete",
+            serde_json::json!({ "total": total, "completed": completed, "cancelled": false }),
+        );
+    });
+    Ok(total)
+}
+
+#[tauri::command]
+fn app_cancel_ingest() {
+    ingest_flag().store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn app_reset_library() -> Result<Value, String> {
+    reset_store(None).map_err(stringify)
+}
+
+#[tauri::command]
+fn app_watch_folder(app: AppHandle, path: String) -> Result<Vec<String>, String> {
+    watch_service::start_watch(&app, PathBuf::from(&path).as_path()).map_err(stringify)?;
+    Ok(watch_service::list_watched())
+}
+
+#[tauri::command]
+fn app_unwatch_folder(app: AppHandle, path: String) -> Result<Vec<String>, String> {
+    watch_service::stop_watch(&app, PathBuf::from(&path).as_path()).map_err(stringify)?;
+    Ok(watch_service::list_watched())
+}
+
+#[tauri::command]
+fn app_watched_folders() -> Vec<String> {
+    watch_service::list_watched()
 }
 
 #[tauri::command]
@@ -111,10 +199,33 @@ fn stringify<E: std::fmt::Display>(error: E) -> String {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            use tauri::{Emitter, Listener, Manager};
+            let handle = app.handle().clone();
+            if let Some(window) = handle.get_webview_window("main") {
+                let emit_handle = handle.clone();
+                window.listen("tauri://drag-drop", move |event| {
+                    let payload = event.payload();
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+                        if let Some(paths) = value.get("paths").cloned() {
+                            let _ = emit_handle.emit("files-dropped", paths);
+                        }
+                    }
+                });
+            }
+            let resume_handle = handle.clone();
+            std::thread::spawn(move || watch_service::resume_all(&resume_handle));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_status,
             app_search,
             app_add_paths,
+            app_cancel_ingest,
+            app_reset_library,
+            app_watch_folder,
+            app_unwatch_folder,
+            app_watched_folders,
             app_parsers,
             app_embeddings,
             app_set_embedding,

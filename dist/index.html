@@ -7,121 +7,234 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body data-section="search">
-    <aside class="sidebar">
-      <header class="brand">
-        <div class="brand-mark"></div>
-        <div class="brand-text">
-          <strong>Memory</strong>
-          <span>local · private</span>
+    <aside class="sidebar" aria-label="Primary">
+      <header class="brand" aria-hidden="true">
+        <div class="brand-mark"><span>m</span></div>
+        <div class="brand-meta">
+          <strong>Local AI Memory</strong>
+          <span class="brand-sub">on this Mac</span>
         </div>
       </header>
-      <nav class="nav">
-        <button class="nav-item is-active" data-target="search">
-          <span class="nav-glyph">⌕</span>
-          <span>Search</span>
+
+      <nav class="nav" role="tablist" aria-label="Sections">
+        <button class="nav-item is-active" data-target="search" role="tab" aria-selected="true">
+          <span class="nav-rail" aria-hidden="true"></span>
+          <span class="nav-glyph" aria-hidden="true">·</span>
+          <span class="nav-label">Search</span>
+          <kbd class="nav-kbd">⌘1</kbd>
         </button>
-        <button class="nav-item" data-target="library">
-          <span class="nav-glyph">▤</span>
-          <span>Library</span>
+        <button class="nav-item" data-target="library" role="tab" aria-selected="false">
+          <span class="nav-rail" aria-hidden="true"></span>
+          <span class="nav-glyph" aria-hidden="true">▢</span>
+          <span class="nav-label">Library</span>
+          <kbd class="nav-kbd">⌘2</kbd>
         </button>
-        <button class="nav-item" data-target="settings">
-          <span class="nav-glyph">◉</span>
-          <span>Settings</span>
+        <button class="nav-item" data-target="settings" role="tab" aria-selected="false">
+          <span class="nav-rail" aria-hidden="true"></span>
+          <span class="nav-glyph" aria-hidden="true">◐</span>
+          <span class="nav-label">Settings</span>
+          <kbd class="nav-kbd">⌘3</kbd>
         </button>
       </nav>
-      <div class="sidebar-footer">
-        <div id="status-pill" class="pill">Loading…</div>
+
+      <div class="sidebar-foot">
+        <div class="provider-summary" id="provider-summary">
+          <span class="eyebrow">embeddings</span>
+          <span class="provider-name" id="provider-summary-name">—</span>
+          <span class="provider-detail" id="provider-summary-detail"></span>
+        </div>
+        <div class="pill" id="status-pill" aria-live="polite">
+          <span class="pill-dot" aria-hidden="true"></span>
+          <span class="pill-text">Local · offline</span>
+        </div>
       </div>
     </aside>
 
     <main class="main">
-      <header class="titlebar"></header>
+      <header class="titlebar" aria-hidden="true"></header>
 
       <section class="panel" data-panel="search">
-        <div class="search-bar">
-          <input
-            id="search-input"
-            type="search"
-            placeholder="Ask your memory…"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <div class="budget-group" role="tablist" aria-label="Token budget">
-            <button class="chip is-active" data-budget="low">Focused</button>
-            <button class="chip" data-budget="normal">Balanced</button>
-            <button class="chip" data-budget="wide">Wide</button>
+        <header class="panel-head">
+          <h1 class="panel-title">Search</h1>
+          <p class="panel-sub">Ask in natural language. Every answer cites the chunk that grounded it.</p>
+        </header>
+
+        <div class="search-row">
+          <div class="search-field">
+            <span class="search-glyph" aria-hidden="true">⌕</span>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="What did the team decide about renewals?"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <kbd class="search-kbd">⌘K</kbd>
+          </div>
+          <div class="segmented" role="tablist" aria-label="Token budget">
+            <button class="seg is-active" data-budget="low" role="tab" aria-selected="true">Focused</button>
+            <button class="seg" data-budget="normal" role="tab" aria-selected="false">Balanced</button>
+            <button class="seg" data-budget="wide" role="tab" aria-selected="false">Wide</button>
           </div>
         </div>
-        <div id="search-empty" class="empty">
-          <h2>Search your memory</h2>
-          <p>Type a question. Results are grounded with citations and live entirely on this device.</p>
+
+        <div id="search-empty" class="search-empty">
+          <p class="search-empty-eyebrow">Try</p>
+          <ul class="search-suggestions">
+            <li><button class="suggestion" data-query="renewal notices">renewal notices</button></li>
+            <li><button class="suggestion" data-query="rollout strategy">rollout strategy</button></li>
+            <li><button class="suggestion" data-query="session token expiry">session token expiry</button></li>
+          </ul>
+          <p class="search-empty-hint" id="search-empty-hint">
+            Suggestions match the documents in your library. Switch to <b>Library</b> to index more.
+          </p>
         </div>
+
         <div id="search-results" class="results" hidden></div>
       </section>
 
       <section class="panel" data-panel="library" hidden>
-        <div
+        <header class="panel-head panel-head--row">
+          <div>
+            <h1 class="panel-title">Library</h1>
+            <p class="panel-sub">Drop a folder. Files stay where they are. Only an index lives in <code>.memoria/</code>.</p>
+          </div>
+          <button id="reset-library" class="btn-danger" type="button">Reset library</button>
+        </header>
+
+        <section class="stats-row">
+          <div class="stat">
+            <span class="stat-num" id="meta-ready">—</span>
+            <span class="stat-label">Indexed documents</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num" id="meta-error">—</span>
+            <span class="stat-label">With errors</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num" id="meta-jobs">—</span>
+            <span class="stat-label">Jobs in queue</span>
+          </div>
+        </section>
+
+        <section class="watched" id="watched-section">
+          <header class="ingest-head">
+            <h2 class="section-title">Watched folders</h2>
+            <span class="eyebrow" id="watched-count">0</span>
+          </header>
+          <div id="watched-list" class="watched-list">
+            <p class="ingest-empty">No folders are being watched.</p>
+          </div>
+        </section>
+
+        <section
           id="dropzone"
           class="dropzone"
           tabindex="0"
-          aria-label="Drop files to index"
+          aria-label="Drop files or folders to index"
         >
-          <div class="dropzone-inner">
-            <div class="dropzone-glyph">↥</div>
-            <h2>Drop files or a folder here</h2>
-            <p>Markdown, PDF, DOCX, PPTX, XLSX, HTML, CSV, plain text. Stays local.</p>
-            <button id="dropzone-browse" class="btn-primary">Choose files…</button>
+          <div class="dropzone-body">
+            <p class="dropzone-eyebrow">Drop here</p>
+            <h2 class="dropzone-title">Index a folder</h2>
+            <p class="dropzone-hint">
+              Markdown, PDF, DOCX, PPTX, XLSX, HTML, CSV, plain text. Originals never move.
+              Only an index lives in <code>.memoria/</code>.
+            </p>
+            <button id="dropzone-browse" class="btn-ghost">Or run <code>mem add ./folder</code></button>
           </div>
-        </div>
-        <div class="library-meta">
-          <div class="meta-card">
-            <span class="meta-label">Indexed documents</span>
-            <span id="meta-ready" class="meta-value">—</span>
+        </section>
+
+        <section class="ingest" id="ingest">
+          <header class="ingest-head">
+            <h2 class="section-title">Recent activity</h2>
+            <span class="eyebrow" id="ingest-count"></span>
+          </header>
+          <div id="ingest-progress" class="ingest-progress" hidden>
+            <div class="progress-row">
+              <div class="bar"><span id="ingest-bar" class="bar-fill"></span></div>
+              <button id="ingest-cancel" class="btn-ghost btn-cancel" type="button">Cancel</button>
+            </div>
+            <div class="progress-meta">
+              <span id="ingest-progress-text">0 / 0</span>
+              <span id="ingest-progress-file" class="progress-file"></span>
+            </div>
           </div>
-          <div class="meta-card">
-            <span class="meta-label">Errors</span>
-            <span id="meta-error" class="meta-value">—</span>
+          <div id="ingest-log" class="ingest-log">
+            <p class="ingest-empty">No recent ingest in this session.</p>
           </div>
-          <div class="meta-card">
-            <span class="meta-label">Jobs in queue</span>
-            <span id="meta-jobs" class="meta-value">—</span>
-          </div>
-        </div>
-        <div id="ingest-log" class="ingest-log"></div>
+        </section>
       </section>
 
       <section class="panel" data-panel="settings" hidden>
-        <div class="settings-section">
-          <h3>Embeddings</h3>
-          <p class="muted">Pick where embeddings come from. Changing provider or model requires a reindex.</p>
-          <div class="provider-grid">
-            <button class="provider" data-provider="local">
-              <strong>Local</strong>
-              <span>Deterministic, offline, no network</span>
+        <header class="panel-head">
+          <h1 class="panel-title">Settings</h1>
+          <p class="panel-sub">Pick how chunks are embedded. Changing this requires reindex so query and stored vectors live in the same space.</p>
+        </header>
+
+        <section class="settings-section">
+          <header class="section-head">
+            <h2 class="section-title">Embeddings</h2>
+            <span class="eyebrow" id="active-provider-eyebrow">current · —</span>
+          </header>
+
+          <div class="provider-list" id="provider-list">
+            <button class="provider" data-provider="local" data-active="true">
+              <span class="provider-rail" aria-hidden="true"></span>
+              <span class="provider-body">
+                <span class="provider-name">Local</span>
+                <span class="provider-line">Deterministic hash · 128 dims · offline, no network</span>
+                <span class="provider-meta">model · local-hash-v1</span>
+              </span>
             </button>
             <button class="provider" data-provider="ollama">
-              <strong>Ollama</strong>
-              <span>nomic-embed-text · localhost</span>
+              <span class="provider-rail" aria-hidden="true"></span>
+              <span class="provider-body">
+                <span class="provider-name">Ollama</span>
+                <span class="provider-line">Real semantic embeddings via your local Ollama runtime</span>
+                <span class="provider-meta">model · nomic-embed-text · http://localhost:11434/v1</span>
+              </span>
             </button>
             <button class="provider" data-provider="openai">
-              <strong>OpenAI</strong>
-              <span>text-embedding-3-small</span>
+              <span class="provider-rail" aria-hidden="true"></span>
+              <span class="provider-body">
+                <span class="provider-name">OpenAI</span>
+                <span class="provider-line">Cloud · sends chunk text to OpenAI on each query and reindex</span>
+                <span class="provider-meta">model · text-embedding-3-small · requires OPENAI_API_KEY</span>
+              </span>
             </button>
             <button class="provider" data-provider="openrouter">
-              <strong>OpenRouter</strong>
-              <span>openai/text-embedding-3-small</span>
+              <span class="provider-rail" aria-hidden="true"></span>
+              <span class="provider-body">
+                <span class="provider-name">OpenRouter</span>
+                <span class="provider-line">Cloud · routes to OpenAI-compatible providers via OpenRouter</span>
+                <span class="provider-meta">model · openai/text-embedding-3-small · requires OPENROUTER_API_KEY</span>
+              </span>
             </button>
           </div>
-          <pre id="embedding-detail" class="detail"></pre>
-        </div>
-        <div class="settings-section">
-          <h3>Parsers</h3>
-          <pre id="parser-detail" class="detail"></pre>
-        </div>
+        </section>
+
+        <section class="settings-section">
+          <header class="section-head">
+            <h2 class="section-title">Parsers</h2>
+            <span class="eyebrow" id="parser-eyebrow">probing…</span>
+          </header>
+          <div id="parser-detail" class="parser-detail"></div>
+        </section>
+
+        <section class="settings-section settings-section--muted">
+          <header class="section-head">
+            <h2 class="section-title">Store</h2>
+          </header>
+          <dl class="kv">
+            <div class="kv-row"><dt>Location</dt><dd id="store-path">.memoria/</dd></div>
+            <div class="kv-row"><dt>Schema</dt><dd>SQLite FTS + LanceDB vectors</dd></div>
+            <div class="kv-row"><dt>Network</dt><dd id="store-network">Offline by default</dd></div>
+          </dl>
+        </section>
       </section>
     </main>
 
-    <div id="toast" class="toast" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="app.js" defer></script>
   </body>
 </html>

@@ -1,26 +1,95 @@
-use crate::indexer::{add_path, search_memory, status};
+use crate::{
+    embeddings::{default_model, resolve_config},
+    extractors::parser_status,
+    indexer::{add_path, reset_store, search_memory, status},
+    settings::{list_settings, set_settings},
+    watch_manager::{self, EventSink, WatchEvent},
+};
 use anyhow::Result;
 use serde::Deserialize;
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 #[derive(Deserialize)]
 struct AddBody {
-    path: String,
+    paths: Vec<String>,
     #[serde(default)]
     force: bool,
+}
+
+#[derive(Deserialize)]
+struct WatchBody {
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct EmbeddingSetBody {
+    provider: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    dimensions: Option<usize>,
 }
 
 pub fn serve(port: u16) -> Result<()> {
     let public_dir = std::env::current_dir()?.join("public");
     let server = Server::http(("127.0.0.1", port)).map_err(|e| anyhow::anyhow!("{e}"))?;
-    eprintln!("Local AI Memory UI: http://localhost:{port}");
+    eprintln!("local-ai-memory HTTP on http://localhost:{port}");
     for request in server.incoming_requests() {
         if let Err(error) = handle(request, &public_dir) {
             eprintln!("request error: {error:?}");
         }
     }
     Ok(())
+}
+
+pub fn serve_daemon(port: u16) -> Result<()> {
+    let sink: EventSink = Arc::new(|event| log_event(&event));
+    watch_manager::resume_all(sink);
+    serve(port)
+}
+
+fn log_event(event: &WatchEvent) {
+    let value = match event {
+        WatchEvent::Starting(p) => json!({ "kind": "starting", "folder": p.to_string_lossy() }),
+        WatchEvent::ScanStart { folder, total } => json!({
+            "kind": "scan-start", "folder": folder.to_string_lossy(), "total": total
+        }),
+        WatchEvent::Ingest { folder, source, index, total, result, path } => {
+            let (status, chunks, error) = match result {
+                Ok(r) => (r.status.clone(), r.chunks.map(|n| n as i64), r.error.clone()),
+                Err(e) => ("error".to_string(), None, Some(e.clone())),
+            };
+            json!({
+                "kind": "ingest",
+                "folder": folder.to_string_lossy(),
+                "file": path.to_string_lossy(),
+                "source": source,
+                "index": index,
+                "total": total,
+                "status": status,
+                "chunks": chunks,
+                "error": error,
+            })
+        }
+        WatchEvent::ScanComplete(p) => json!({ "kind": "scan-complete", "folder": p.to_string_lossy() }),
+        WatchEvent::Stopped(p) => json!({ "kind": "stopped", "folder": p.to_string_lossy() }),
+        WatchEvent::Error { folder, message } => json!({
+            "kind": "error", "folder": folder.to_string_lossy(), "error": message
+        }),
+        WatchEvent::StatusChanged { watched, added, removed } => json!({
+            "kind": "status", "watched": watched, "added": added, "removed": removed
+        }),
+    };
+    eprintln!("{value}");
 }
 
 fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
@@ -33,19 +102,88 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
             let params = parse_query(&query);
             let q = params.get("q").cloned().unwrap_or_default();
             let budget = params.get("budget").cloned().unwrap_or_else(|| "normal".to_string());
-            let results = search_memory(&q, &budget, None, &HashMap::new(), None)?;
+            let limit = params.get("limit").and_then(|v| v.parse().ok());
+            let results = search_memory(&q, &budget, limit, &HashMap::new(), None)?;
             json_response(request, &results)
         }
         (Method::Post, "/api/add") => {
-            let mut body = String::new();
-            request.as_reader().read_to_string(&mut body)?;
+            let body = read_body(&mut request)?;
             let parsed: AddBody = serde_json::from_str(&body)?;
-            let results = add_path(Path::new(&parsed.path), parsed.force, &HashMap::new(), None)?;
-            json_response(request, &results)
+            let mut all = Vec::new();
+            for raw in parsed.paths {
+                let results = add_path(Path::new(&raw), parsed.force, &HashMap::new(), None)?;
+                for r in results {
+                    all.push(serde_json::to_value(r)?);
+                }
+            }
+            json_response(request, &all)
+        }
+        (Method::Post, "/api/reset") => {
+            let result = reset_store(None)?;
+            json_response(request, &result)
+        }
+        (Method::Get, "/api/parsers") => json_response(request, &parser_status()),
+        (Method::Get, "/api/embeddings") => {
+            let active = resolve_config(None, &HashMap::new(), true)?;
+            let settings = list_settings("embedding.", None)?;
+            json_response(request, &json!({
+                "active": {
+                    "provider": active.provider,
+                    "model": active.model,
+                    "dimensions": active.dimensions,
+                    "base_url": active.base_url,
+                    "api_key_set": active.api_key.is_some(),
+                },
+                "settings": settings,
+            }))
+        }
+        (Method::Post, "/api/embeddings/set") => {
+            let body = read_body(&mut request)?;
+            let parsed: EmbeddingSetBody = serde_json::from_str(&body)?;
+            let model = parsed.model.unwrap_or_else(|| default_model(&parsed.provider).to_string());
+            let mut values = vec![
+                ("embedding.provider", parsed.provider.clone()),
+                ("embedding.default_model", model),
+                (
+                    "embedding.cloud_enabled",
+                    if parsed.provider == "local" { "false".to_string() } else { "true".to_string() },
+                ),
+            ];
+            if let Some(url) = parsed.base_url {
+                values.push(("embedding.base_url", url));
+            }
+            if let Some(dims) = parsed.dimensions {
+                values.push(("embedding.dimensions", dims.to_string()));
+            }
+            set_settings(&values, None)?;
+            json_response(request, &json!({ "ok": true }))
+        }
+        (Method::Get, "/api/watched") => {
+            json_response(request, &watch_manager::list_watched())
+        }
+        (Method::Post, "/api/watch") => {
+            let body = read_body(&mut request)?;
+            let parsed: WatchBody = serde_json::from_str(&body)?;
+            let sink: EventSink = Arc::new(|event| log_event(&event));
+            watch_manager::start_watch(Path::new(&parsed.path), sink)?;
+            json_response(request, &watch_manager::list_watched())
+        }
+        (Method::Post, "/api/unwatch") => {
+            let body = read_body(&mut request)?;
+            let parsed: WatchBody = serde_json::from_str(&body)?;
+            let sink: EventSink = Arc::new(|event| log_event(&event));
+            watch_manager::stop_watch(Path::new(&parsed.path), sink)?;
+            json_response(request, &watch_manager::list_watched())
         }
         (Method::Get, _) => serve_static(request, public_dir, &path),
         _ => Ok(request.respond(Response::from_string("Not found").with_status_code(404))?),
     }
+}
+
+fn read_body(request: &mut Request) -> Result<String> {
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    Ok(body)
 }
 
 fn json_response<T: serde::Serialize>(request: Request, value: &T) -> Result<()> {

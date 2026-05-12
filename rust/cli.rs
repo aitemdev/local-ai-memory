@@ -1,7 +1,7 @@
 use crate::{
     embeddings::{default_model, embed_text, resolve_config},
     extractors::parser_status,
-    indexer::{add_path, init_store, search_memory, status},
+    indexer::{add_path, init_store, reset_store, search_memory, status},
     paths::memory_home,
     settings::{list_settings, set_settings},
 };
@@ -25,12 +25,20 @@ enum Command {
     Search(SearchArgs),
     Ask(SearchArgs),
     Status,
+    Reset {
+        #[arg(long, help = "Required confirmation flag")]
+        yes: bool,
+    },
     Parsers,
     Embeddings {
         #[command(subcommand)]
         command: Option<EmbeddingCommand>,
     },
     Serve(ServeArgs),
+    Daemon {
+        #[arg(long, default_value_t = 7456)]
+        port: u16,
+    },
     Watch { path: PathBuf },
     Tui,
 }
@@ -118,9 +126,17 @@ pub fn run() -> Result<()> {
             run_search(args)?;
         }
         Command::Status => println!("{}", serde_json::to_string_pretty(&status(None)?)?),
+        Command::Reset { yes } => {
+            if !yes {
+                return Err(anyhow!("Refusing to reset without --yes"));
+            }
+            let result = reset_store(None)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
         Command::Parsers => println!("{}", serde_json::to_string_pretty(&parser_status())?),
         Command::Embeddings { command } => run_embeddings(command)?,
         Command::Serve(args) => run_serve(args)?,
+        Command::Daemon { port } => crate::http::serve_daemon(port)?,
         Command::Watch { path } => crate::watcher::watch(&path)?,
         Command::Tui => crate::tui::run()?,
     }
