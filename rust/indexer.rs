@@ -115,6 +115,73 @@ pub fn status(base: Option<PathBuf>) -> Result<serde_json::Value> {
     }))
 }
 
+pub fn get_document(document_id: &str, base: Option<PathBuf>) -> Result<serde_json::Value> {
+    let (conn, _) = ensure_store(base)?;
+    let row = conn.query_row(
+        "SELECT id, path, hash, type, title, status, error, canonical_md_path, canonical_json_path, created_at, updated_at FROM documents WHERE id = ?1",
+        [document_id],
+        |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "path": row.get::<_, String>(1)?,
+                "hash": row.get::<_, String>(2)?,
+                "type": row.get::<_, String>(3)?,
+                "title": row.get::<_, String>(4)?,
+                "status": row.get::<_, String>(5)?,
+                "error": row.get::<_, Option<String>>(6)?,
+                "canonical_md_path": row.get::<_, Option<String>>(7)?,
+                "canonical_json_path": row.get::<_, Option<String>>(8)?,
+                "created_at": row.get::<_, String>(9)?,
+                "updated_at": row.get::<_, String>(10)?,
+            }))
+        },
+    ).ok();
+    Ok(row.unwrap_or(serde_json::Value::Null))
+}
+
+pub fn get_chunk(chunk_id: &str, base: Option<PathBuf>) -> Result<serde_json::Value> {
+    let (conn, _) = ensure_store(base)?;
+    let row = conn.query_row(
+        r#"
+        SELECT c.id, c.document_id, c.ordinal, c.text, c.heading, c.page, c.slide, c.token_count, c.hash, d.title, d.path
+        FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE c.id = ?1
+        "#,
+        [chunk_id],
+        |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "document_id": row.get::<_, String>(1)?,
+                "ordinal": row.get::<_, i64>(2)?,
+                "text": row.get::<_, String>(3)?,
+                "heading": row.get::<_, Option<String>>(4)?,
+                "page": row.get::<_, Option<i64>>(5)?,
+                "slide": row.get::<_, Option<i64>>(6)?,
+                "token_count": row.get::<_, i64>(7)?,
+                "hash": row.get::<_, String>(8)?,
+                "title": row.get::<_, String>(9)?,
+                "path": row.get::<_, String>(10)?,
+            }))
+        },
+    ).ok();
+    Ok(row.unwrap_or(serde_json::Value::Null))
+}
+
+pub fn list_collections(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>> {
+    let (conn, _) = ensure_store(base)?;
+    let mut stmt = conn.prepare("SELECT id, name, path, kind, created_at FROM collections ORDER BY created_at DESC")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "name": row.get::<_, String>(1)?,
+            "path": row.get::<_, Option<String>>(2)?,
+            "kind": row.get::<_, String>(3)?,
+            "created_at": row.get::<_, String>(4)?,
+        }))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 fn index_extracted(
     conn: &Connection,
     canonical_dir: &Path,
@@ -277,4 +344,65 @@ fn count_by_status(conn: &Connection, table: &str) -> Result<Vec<serde_json::Val
 fn is_heading_only(text: &str) -> bool {
     let lines: Vec<_> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
     lines.len() == 1 && lines[0].starts_with('#')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn write_file(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn ingests_markdown_and_finds_it() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join(".memoria");
+        let file = write_file(
+            dir.path(),
+            "strategy.md",
+            "# Strategy\n\nEnterprise pricing uses annual contracts and renewal notices.",
+        );
+        init_store(Some(base.clone())).unwrap();
+        let overrides = HashMap::new();
+        let results = add_path(&file, false, &overrides, Some(base.clone())).unwrap();
+        assert_eq!(results[0].status, "ready");
+
+        let hits = search_memory("enterprise pricing", "low", None, &overrides, Some(base.clone())).unwrap();
+        assert!(!hits.is_empty());
+        assert!(hits[0].text.to_lowercase().contains("enterprise pricing"));
+
+        let state = status(Some(base)).unwrap();
+        let docs = state.get("documents").unwrap().as_array().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].get("status").unwrap(), "ready");
+        assert_eq!(docs[0].get("count").unwrap(), 1);
+    }
+
+    #[test]
+    fn reranks_exact_lexical_above_nearby_semantic() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join(".memoria");
+        write_file(
+            dir.path(),
+            "pricing.md",
+            "# Enterprise Pricing\n\nEnterprise pricing uses renewal notices for seat tiers.",
+        );
+        write_file(
+            dir.path(),
+            "sales.md",
+            "# Sales Motion\n\nCustomer contracts include annual plans and account expansion.",
+        );
+        init_store(Some(base.clone())).unwrap();
+        let overrides = HashMap::new();
+        add_path(dir.path(), false, &overrides, Some(base.clone())).unwrap();
+
+        let hits = search_memory("enterprise pricing renewal", "low", None, &overrides, Some(base)).unwrap();
+        assert!(hits.len() >= 2);
+        assert_eq!(hits[0].title, "pricing.md");
+        assert!(hits[0].score >= hits[1].score);
+    }
 }

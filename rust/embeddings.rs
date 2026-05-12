@@ -181,3 +181,30 @@ fn api_key(provider: &str) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::set_settings;
+    use tempfile::TempDir;
+
+    #[test]
+    fn resolves_configured_provider_from_local_settings() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join(".memoria");
+        crate::indexer::init_store(Some(base.clone())).unwrap();
+        set_settings(
+            &[
+                ("embedding.provider", "ollama".to_string()),
+                ("embedding.default_model", "nomic-embed-text".to_string()),
+                ("embedding.base_url", "http://localhost:11434/v1".to_string()),
+            ],
+            Some(base.clone()),
+        )
+        .unwrap();
+        let config = resolve_config(Some(base), &HashMap::new(), true).unwrap();
+        assert_eq!(config.provider, "ollama");
+        assert_eq!(config.model, "nomic-embed-text");
+        assert_eq!(config.base_url, "http://localhost:11434/v1");
+    }
+}

@@ -98,7 +98,7 @@ fn extract_with_python(path: &Path) -> Result<ExtractedDocument> {
 fn resolve_python() -> Option<String> {
     let candidates = [
         std::env::var("MEM_PYTHON").ok(),
-        Some("C:\\Users\\abelj\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe".to_string()),
+        Some("python3".to_string()),
         Some("python".to_string()),
         Some("py".to_string()),
     ];
@@ -117,4 +117,15 @@ fn normalize_text(raw: &str, ext: &str, title: &str) -> String {
         return trimmed;
     }
     format!("# {title}\n\n{trimmed}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_status_does_not_panic() {
+        let status = parser_status();
+        assert!(status.get("ready").is_some());
+    }
 }

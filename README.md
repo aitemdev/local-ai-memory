@@ -2,19 +2,27 @@
 
 Local-first personal memory for AI tools. It ingests documents, creates canonical Markdown/JSON, chunks and indexes content locally, exposes hybrid search through a CLI, and serves an MCP server so compatible AI clients can query your memory with citations.
 
-This repository is a mostly dependency-free MVP implementation. It uses Node 24 native SQLite, local deterministic embeddings, and a small web UI precursor to the future Tauri app. Document conversion uses Docling first, MarkItDown second, then lightweight Python fallbacks when available.
+The primary implementation is a Rust binary (`mem`). It uses SQLite (bundled), local deterministic embeddings, and serves a small web UI precursor to the future Tauri app. Document conversion uses Docling first, MarkItDown second, then lightweight Python fallbacks when available.
 
 ## Quick start
 
 ```bash
-node ./bin/mem.js init
-node ./bin/mem.js add ./notes
-node ./bin/mem.js search "pricing enterprise"
-node ./bin/mem.js search "pricing enterprise" --budget normal --limit 8 --debug
-node ./bin/mem.js parsers
-node ./bin/mem.js embeddings
-node ./bin/mem.js serve --mcp
-node ./bin/mem.js serve --http --port 3737
+cargo run -- init
+cargo run -- add ./notes
+cargo run -- search "pricing enterprise"
+cargo run -- search "pricing enterprise" --budget normal --limit 8 --debug
+cargo run -- parsers
+cargo run -- embeddings
+cargo run -- serve --mcp
+cargo run -- serve --http --port 3737
+```
+
+Build the release binary once and use it directly:
+
+```bash
+cargo build --release
+./target/release/mem init
+./target/release/mem add ./notes
 ```
 
 By default the local store is created in `.memoria/` under the current working directory. Set `MEM_HOME` to use another location.
@@ -36,18 +44,18 @@ By default the local store is created in `.memoria/` under the current working d
 Check available parser engines:
 
 ```bash
-node ./bin/mem.js parsers
+cargo run -- parsers
 ```
 
 Install the preferred parser stack into a Python environment and point the app at it:
 
 ```bash
 python -m pip install docling "markitdown[all]"
-$env:MEM_PYTHON="C:\Path\To\python.exe"
-node ./bin/mem.js parsers
+export MEM_PYTHON=/path/to/python
+cargo run -- parsers
 ```
 
-If `MEM_PYTHON` is not set, the app tries the bundled Codex Python runtime and then system `python`/`py`.
+If `MEM_PYTHON` is not set, the app tries `python3`, then `python`, then `py`.
 
 ## Search quality
 
@@ -61,9 +69,9 @@ Search is hybrid by default:
 Useful CLI options:
 
 ```bash
-node ./bin/mem.js search "renewal notices" --budget low
-node ./bin/mem.js search "renewal notices" --limit 5 --json
-node ./bin/mem.js search "renewal notices" --debug
+cargo run -- search "renewal notices" --budget low
+cargo run -- search "renewal notices" --limit 5 --json
+cargo run -- search "renewal notices" --debug
 ```
 
 ## Embedding providers
@@ -71,32 +79,48 @@ node ./bin/mem.js search "renewal notices" --debug
 The default provider is local and sends nothing to the network:
 
 ```bash
-node ./bin/mem.js embeddings
-node ./bin/mem.js embeddings test "hello"
+cargo run -- embeddings
+cargo run -- embeddings test "hello"
 ```
 
 OpenAI:
 
 ```bash
-$env:OPENAI_API_KEY="sk-..."
-node ./bin/mem.js embeddings set --provider openai --model text-embedding-3-small --dimensions 1536
-node ./bin/mem.js reindex "C:\Path\To\Docs"
+export OPENAI_API_KEY=sk-...
+cargo run -- embeddings set --provider openai --model text-embedding-3-small --dimensions 1536
+cargo run -- reindex /path/to/docs
 ```
 
 OpenRouter:
 
 ```bash
-$env:OPENROUTER_API_KEY="sk-or-..."
-node ./bin/mem.js embeddings set --provider openrouter --model openai/text-embedding-3-small --dimensions 1536
-node ./bin/mem.js reindex "C:\Path\To\Docs"
+export OPENROUTER_API_KEY=sk-or-...
+cargo run -- embeddings set --provider openrouter --model openai/text-embedding-3-small --dimensions 1536
+cargo run -- reindex /path/to/docs
 ```
 
 Ollama local or Ollama Cloud models exposed through Ollama's OpenAI-compatible API:
 
 ```bash
 ollama pull nomic-embed-text
-node ./bin/mem.js embeddings set --provider ollama --model nomic-embed-text --base-url http://localhost:11434/v1
-node ./bin/mem.js reindex "C:\Path\To\Docs"
+cargo run -- embeddings set --provider ollama --model nomic-embed-text --base-url http://localhost:11434/v1
+cargo run -- reindex /path/to/docs
 ```
 
 API keys are read from environment variables, not stored in SQLite. Changing provider or model requires `reindex` so stored vectors match query vectors.
+
+## Tests
+
+```bash
+cargo test
+```
+
+## Legacy Node MVP
+
+The original Node 24 reference implementation lives under `legacy-node/`. It is kept for behavioral comparison and is not the primary path. To run it:
+
+```bash
+cd legacy-node
+node ./bin/mem.js init
+node --test
+```

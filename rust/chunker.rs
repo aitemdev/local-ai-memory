@@ -83,3 +83,16 @@ fn make_chunk(text: &str, heading: Option<String>, ordinal: usize) -> Chunk {
         slide: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunks_markdown_by_headings_and_preserves_text() {
+        let chunks = chunk_markdown("# Title\n\nAlpha beta gamma.\n\n## Next\n\nDelta epsilon.");
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].heading.as_deref(), Some("Title"));
+        assert!(chunks[1].text.contains("Delta"));
+    }
+}

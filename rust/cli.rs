@@ -30,6 +30,17 @@ enum Command {
         #[command(subcommand)]
         command: Option<EmbeddingCommand>,
     },
+    Serve(ServeArgs),
+}
+
+#[derive(Args)]
+struct ServeArgs {
+    #[arg(long)]
+    mcp: bool,
+    #[arg(long)]
+    http: bool,
+    #[arg(long, default_value_t = 7456)]
+    port: u16,
 }
 
 #[derive(Args)]
@@ -107,6 +118,22 @@ pub fn run() -> Result<()> {
         Command::Status => println!("{}", serde_json::to_string_pretty(&status(None)?)?),
         Command::Parsers => println!("{}", serde_json::to_string_pretty(&parser_status())?),
         Command::Embeddings { command } => run_embeddings(command)?,
+        Command::Serve(args) => run_serve(args)?,
+    }
+    Ok(())
+}
+
+fn run_serve(args: ServeArgs) -> Result<()> {
+    if !args.mcp && !args.http {
+        return Err(anyhow!("Pass --mcp or --http"));
+    }
+    if args.mcp && args.http {
+        return Err(anyhow!("Pass only one of --mcp or --http"));
+    }
+    if args.mcp {
+        crate::mcp::serve()?;
+    } else {
+        crate::http::serve(args.port)?;
     }
     Ok(())
 }
