@@ -22,7 +22,7 @@ pub struct IngestResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
 pub struct SearchResult {
     pub chunk_id: String,
     pub document_id: String,
@@ -200,6 +200,63 @@ pub fn get_chunk(chunk_id: &str, base: Option<PathBuf>) -> Result<serde_json::Va
         },
     ).ok();
     Ok(row.unwrap_or(serde_json::Value::Null))
+}
+
+pub fn list_documents(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>> {
+    let (conn, _) = ensure_store(base)?;
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT d.id, d.title, d.path, d.status, d.type, d.updated_at, d.error,
+               COALESCE((SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id), 0) AS chunks
+        FROM documents d
+        ORDER BY d.updated_at DESC
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "title": row.get::<_, String>(1)?,
+            "path": row.get::<_, String>(2)?,
+            "status": row.get::<_, String>(3)?,
+            "type": row.get::<_, String>(4)?,
+            "updated_at": row.get::<_, String>(5)?,
+            "error": row.get::<_, Option<String>>(6)?,
+            "chunks": row.get::<_, i64>(7)?,
+        }))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn delete_document(document_id: &str, base: Option<PathBuf>) -> Result<serde_json::Value> {
+    let (conn, paths) = ensure_store(base.clone())?;
+    let row: Option<(String, String, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT id, path, canonical_md_path, canonical_json_path FROM documents WHERE id = ?1",
+            [document_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .ok();
+    let Some((id, path, canonical_md, canonical_json)) = row else {
+        return Err(anyhow::anyhow!("document {document_id} not found"));
+    };
+    conn.execute("DELETE FROM chunks_fts WHERE document_id = ?1", [&id])?;
+    conn.execute("DELETE FROM chunks WHERE document_id = ?1", [&id])?;
+    conn.execute("DELETE FROM document_versions WHERE document_id = ?1", [&id])?;
+    conn.execute("DELETE FROM documents WHERE id = ?1", [&id])?;
+    drop(conn);
+
+    let store_base = base.unwrap_or_else(crate::paths::memory_home);
+    let store = crate::vector_store::VectorStore::open(&store_base)?;
+    let _ = store.delete_document(&id);
+
+    if let Some(p) = canonical_md.as_deref() {
+        let _ = std::fs::remove_file(p);
+    }
+    if let Some(p) = canonical_json.as_deref() {
+        let _ = std::fs::remove_file(p);
+    }
+    let _ = paths;
+    Ok(serde_json::json!({ "id": id, "path": path }))
 }
 
 pub fn list_collections(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>> {

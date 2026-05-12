@@ -1,7 +1,7 @@
 use crate::{
     embeddings::{default_model, resolve_config},
     extractors::parser_status,
-    indexer::{add_path, reset_store, search_memory, status},
+    indexer::{add_path, delete_document, list_documents, reset_store, search_memory, status},
     settings::{list_settings, set_settings},
     watch_manager::{self, EventSink, WatchEvent},
 };
@@ -29,6 +29,11 @@ struct WatchBody {
 }
 
 #[derive(Deserialize)]
+struct DocumentBody {
+    id: String,
+}
+
+#[derive(Deserialize)]
 struct EmbeddingSetBody {
     provider: String,
     #[serde(default)]
@@ -52,9 +57,30 @@ pub fn serve(port: u16) -> Result<()> {
 }
 
 pub fn serve_daemon(port: u16) -> Result<()> {
+    if let Some(existing) = crate::daemon::read_info() {
+        return Err(anyhow::anyhow!(
+            "daemon already running (pid {} on port {})",
+            existing.pid,
+            existing.port
+        ));
+    }
+    let info = crate::daemon::DaemonInfo {
+        pid: std::process::id(),
+        port,
+    };
+    crate::daemon::write_info(&info)?;
+    let _guard = PidGuard;
     let sink: EventSink = Arc::new(|event| log_event(&event));
     watch_manager::resume_all(sink);
     serve(port)
+}
+
+struct PidGuard;
+
+impl Drop for PidGuard {
+    fn drop(&mut self) {
+        crate::daemon::clear_info();
+    }
 }
 
 fn log_event(event: &WatchEvent) {
@@ -121,6 +147,12 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
         (Method::Post, "/api/reset") => {
             let result = reset_store(None)?;
             json_response(request, &result)
+        }
+        (Method::Get, "/api/documents") => json_response(request, &list_documents(None)?),
+        (Method::Post, "/api/document/delete") => {
+            let body = read_body(&mut request)?;
+            let parsed: DocumentBody = serde_json::from_str(&body)?;
+            json_response(request, &delete_document(&parsed.id, None)?)
         }
         (Method::Get, "/api/parsers") => json_response(request, &parser_status()),
         (Method::Get, "/api/embeddings") => {

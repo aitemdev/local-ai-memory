@@ -35,12 +35,25 @@ enum Command {
         command: Option<EmbeddingCommand>,
     },
     Serve(ServeArgs),
-    Daemon {
-        #[arg(long, default_value_t = 7456)]
-        port: u16,
-    },
+    Daemon(DaemonArgs),
     Watch { path: PathBuf },
     Tui,
+}
+
+#[derive(Args)]
+struct DaemonArgs {
+    #[command(subcommand)]
+    command: Option<DaemonCommand>,
+    #[arg(long, default_value_t = 7456, global = true)]
+    port: u16,
+}
+
+#[derive(Subcommand)]
+enum DaemonCommand {
+    Start,
+    Stop,
+    Status,
+    Restart,
 }
 
 #[derive(Args)]
@@ -107,9 +120,13 @@ pub fn run() -> Result<()> {
             println!("Initialized local memory store at {}", base.display());
         }
         Command::Add(args) => {
-            let results = add_path(&args.path, args.force, &embedding_overrides(&args), None)?;
-            for result in results {
-                println!("{}", serde_json::to_string(&result)?);
+            if let Some(value) = via_daemon_add(&args)? {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                let results = add_path(&args.path, args.force, &embedding_overrides(&args), None)?;
+                for result in results {
+                    println!("{}", serde_json::to_string(&result)?);
+                }
             }
         }
         Command::Reindex(args) => {
@@ -125,20 +142,62 @@ pub fn run() -> Result<()> {
             }
             run_search(args)?;
         }
-        Command::Status => println!("{}", serde_json::to_string_pretty(&status(None)?)?),
+        Command::Status => {
+            let value = if crate::client::endpoint().is_some() {
+                crate::client::get("/api/status")?
+            } else {
+                status(None)?
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
         Command::Reset { yes } => {
             if !yes {
                 return Err(anyhow!("Refusing to reset without --yes"));
             }
-            let result = reset_store(None)?;
-            println!("{}", serde_json::to_string_pretty(&result)?);
+            let value = if crate::client::endpoint().is_some() {
+                crate::client::post("/api/reset", &serde_json::json!({}))?
+            } else {
+                reset_store(None)?
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
         }
-        Command::Parsers => println!("{}", serde_json::to_string_pretty(&parser_status())?),
+        Command::Parsers => {
+            let value = if crate::client::endpoint().is_some() {
+                crate::client::get("/api/parsers")?
+            } else {
+                parser_status()
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
         Command::Embeddings { command } => run_embeddings(command)?,
         Command::Serve(args) => run_serve(args)?,
-        Command::Daemon { port } => crate::http::serve_daemon(port)?,
+        Command::Daemon(args) => run_daemon(args)?,
         Command::Watch { path } => crate::watcher::watch(&path)?,
         Command::Tui => crate::tui::run()?,
+    }
+    Ok(())
+}
+
+fn run_daemon(args: DaemonArgs) -> Result<()> {
+    match args.command.unwrap_or(DaemonCommand::Start) {
+        DaemonCommand::Start => crate::http::serve_daemon(args.port)?,
+        DaemonCommand::Stop => {
+            let info = crate::daemon::stop(3000)?;
+            println!("{}", json!({ "stopped": true, "pid": info.pid, "port": info.port }));
+        }
+        DaemonCommand::Status => {
+            let value = match crate::daemon::read_info() {
+                Some(info) => json!({ "running": true, "pid": info.pid, "port": info.port }),
+                None => json!({ "running": false }),
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        DaemonCommand::Restart => {
+            if crate::daemon::read_info().is_some() {
+                let _ = crate::daemon::stop(3000)?;
+            }
+            crate::http::serve_daemon(args.port)?;
+        }
     }
     Ok(())
 }
@@ -158,12 +217,36 @@ fn run_serve(args: ServeArgs) -> Result<()> {
     Ok(())
 }
 
+fn via_daemon_add(args: &AddArgs) -> Result<Option<serde_json::Value>> {
+    if crate::client::endpoint().is_none() {
+        return Ok(None);
+    }
+    let absolute = std::fs::canonicalize(&args.path)?;
+    let body = serde_json::json!({
+        "paths": [absolute.to_string_lossy()],
+        "force": args.force,
+    });
+    Ok(Some(crate::client::post("/api/add", &body)?))
+}
+
 fn run_search(args: SearchArgs) -> Result<()> {
     let query = args.query.join(" ");
     if query.trim().is_empty() {
         return Err(anyhow!("Missing query"));
     }
-    let rows = search_memory(&query, &args.budget, args.limit, &HashMap::new(), None)?;
+    let rows: Vec<crate::indexer::SearchResult> = if crate::client::endpoint().is_some() {
+        let mut path = format!(
+            "/api/search?q={}&budget={}",
+            crate::client::url_encode(&query),
+            crate::client::url_encode(&args.budget)
+        );
+        if let Some(limit) = args.limit {
+            path.push_str(&format!("&limit={limit}"));
+        }
+        serde_json::from_value(crate::client::get(&path)?)?
+    } else {
+        search_memory(&query, &args.budget, args.limit, &HashMap::new(), None)?
+    };
     if args.json {
         println!("{}", serde_json::to_string_pretty(&rows)?);
     } else if rows.is_empty() {

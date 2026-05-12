@@ -1,0 +1,17 @@
+[Unit]
+Description=Local AI Memory daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mem daemon --port 7456
+Restart=on-failure
+RestartSec=3
+Environment=MEM_HOME=%h/.local/share/local-ai-memory
+# Uncomment to surface Python parsers (Docling/MarkItDown):
+# Environment=MEM_PYTHON=%h/.local/share/local-ai-memory/python/bin/python
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

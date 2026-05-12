@@ -5,7 +5,10 @@ mod watch_service;
 use local_ai_memory::{
     embeddings::{default_model, resolve_config, EmbeddingConfig},
     extractors::parser_status,
-    indexer::{collect_files, ingest_file, reset_store, search_memory, status, SearchResult},
+    indexer::{
+        collect_files, delete_document, ingest_file, list_documents, reset_store, search_memory,
+        status, SearchResult,
+    },
     settings::{list_settings, set_settings, SettingRow},
 };
 use serde::Serialize;
@@ -133,6 +136,16 @@ fn app_reset_library() -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn app_list_documents() -> Result<Vec<Value>, String> {
+    list_documents(None).map_err(stringify)
+}
+
+#[tauri::command]
+fn app_delete_document(id: String) -> Result<Value, String> {
+    delete_document(&id, None).map_err(stringify)
+}
+
+#[tauri::command]
 fn app_watch_folder(app: AppHandle, path: String) -> Result<Vec<String>, String> {
     watch_service::start_watch(&app, PathBuf::from(&path).as_path()).map_err(stringify)?;
     Ok(watch_service::list_watched())
@@ -197,8 +210,23 @@ fn stringify<E: std::fmt::Display>(error: E) -> String {
     format!("{error}")
 }
 
+#[tauri::command]
+fn app_pick_folder(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    app.dialog().file().pick_folder(move |folder| {
+        let path = folder.and_then(|p| match p {
+            tauri_plugin_dialog::FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
+            tauri_plugin_dialog::FilePath::Url(_) => None,
+        });
+        let _ = tx.send(path);
+    });
+    rx.recv().ok().flatten()
+}
+
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             use tauri::{Emitter, Listener, Manager};
             let handle = app.handle().clone();
@@ -223,9 +251,12 @@ fn main() {
             app_add_paths,
             app_cancel_ingest,
             app_reset_library,
+            app_list_documents,
+            app_delete_document,
             app_watch_folder,
             app_unwatch_folder,
             app_watched_folders,
+            app_pick_folder,
             app_parsers,
             app_embeddings,
             app_set_embedding,

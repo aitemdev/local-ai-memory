@@ -9,6 +9,8 @@
     "core:webview:default",
     "core:app:default",
     "core:event:default",
-    "core:path:default"
+    "core:path:default",
+    "dialog:default",
+    "dialog:allow-open"
   ]
 }

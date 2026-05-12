@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.aitemdev.local-ai-memory</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/mem</string>
+    <string>daemon</string>
+    <string>--port</string>
+    <string>7456</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MEM_HOME</key>
+    <string>~/Library/Application Support/local-ai-memory</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/local-ai-memory.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/local-ai-memory.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

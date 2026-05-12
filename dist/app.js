@@ -33,6 +33,8 @@ const els = {
   resetLibrary: document.getElementById("reset-library"),
   watchedList: document.getElementById("watched-list"),
   watchedCount: document.getElementById("watched-count"),
+  docsList: document.getElementById("docs-list"),
+  docsCount: document.getElementById("docs-count"),
   providerList: document.getElementById("provider-list"),
   providers: document.querySelectorAll(".provider"),
   parserDetail: document.getElementById("parser-detail"),
@@ -63,6 +65,51 @@ async function init() {
   await refreshEmbeddings();
   await refreshParsers();
   await refreshWatched();
+  await refreshDocs();
+}
+
+async function refreshDocs() {
+  if (!els.docsList) return;
+  try {
+    const docs = await invoke("app_list_documents");
+    renderDocs(Array.isArray(docs) ? docs : []);
+  } catch (err) {
+    els.docsList.innerHTML = `<p class="ingest-empty">error: ${escape(String(err))}</p>`;
+  }
+}
+
+function renderDocs(docs) {
+  els.docsCount.textContent = String(docs.length);
+  if (docs.length === 0) {
+    els.docsList.innerHTML = `<p class="ingest-empty">No documents indexed yet.</p>`;
+    return;
+  }
+  els.docsList.innerHTML = docs.map((d) => `
+    <div class="doc-row" data-id="${escape(d.id)}">
+      <div class="meta">
+        <span class="title" title="${escape(d.title || '')}">${escape(d.title || '(untitled)')}</span>
+        <span class="sub" title="${escape(d.path || '')}">${escape(shortPath(d.path || ''))}</span>
+      </div>
+      <span class="chunks">${d.chunks ?? 0} chunk${(d.chunks ?? 0) === 1 ? '' : 's'}</span>
+      <button class="delete" data-id="${escape(d.id)}" type="button">Remove</button>
+    </div>
+  `).join("");
+  els.docsList.querySelectorAll(".delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = "Removing…";
+      try {
+        await invoke("app_delete_document", { id });
+        await refreshDocs();
+        await refreshStatus();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Remove";
+        toast(String(err));
+      }
+    });
+  });
 }
 
 /* ---------------- nav + shortcuts ---------------- */
@@ -100,7 +147,7 @@ function switchSection(target) {
   els.panels.forEach((panel) => {
     panel.hidden = panel.dataset.panel !== target;
   });
-  if (target === "library") refreshStatus();
+  if (target === "library") { refreshStatus(); refreshDocs(); }
   if (target === "settings") { refreshEmbeddings(); refreshParsers(); }
   if (target === "search") setTimeout(() => els.searchInput.focus(), 60);
 }
@@ -245,8 +292,16 @@ function shortPath(path) {
 /* ---------------- library ---------------- */
 
 function wireLibrary() {
-  els.dropzoneBrowse.addEventListener("click", () => {
-    toast("Drag a folder onto the dropzone");
+  els.dropzoneBrowse.addEventListener("click", async () => {
+    try {
+      const path = await invoke("app_pick_folder");
+      if (!path) return;
+      switchSection("library");
+      await invoke("app_watch_folder", { path });
+      await refreshWatched();
+    } catch (err) {
+      toast(String(err));
+    }
   });
 
   const evt = window.__TAURI__?.event;
@@ -279,6 +334,7 @@ function wireLibrary() {
     if (p.kind === "scan-complete") {
       hideProgress();
       refreshStatus();
+      refreshDocs();
     }
   });
 
@@ -311,6 +367,7 @@ function wireLibrary() {
       toast(`${total} file${total === 1 ? "" : "s"} processed`);
     }
     await refreshStatus();
+    await refreshDocs();
   });
 
   els.ingestCancel.addEventListener("click", async () => {

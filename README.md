@@ -148,6 +148,40 @@ HTTP endpoints:
 
 The static UI at `public/` is also served from the daemon, so a browser at `http://localhost:7456` becomes a lightweight client.
 
+### Daemon control
+
+```bash
+mem daemon            # start in foreground
+mem daemon status     # is it running, on which port
+mem daemon stop       # SIGTERM then SIGKILL fallback
+mem daemon restart    # stop + start
+```
+
+State lives in `.memoria/daemon.pid` as JSON (`{"pid","port"}`).
+
+When the daemon is up, the CLI auto-detects it and routes `mem status`, `mem search`, `mem add`, `mem parsers`, `mem reset --yes` through the HTTP API. The daemon is the single writer, so multiple CLI sessions stay consistent. With the daemon down the CLI falls back to direct DB access exactly as before.
+
+### Autostart
+
+**Linux (systemd user unit):**
+
+```bash
+install -Dm644 bin/local-ai-memory.service ~/.config/systemd/user/local-ai-memory.service
+systemctl --user daemon-reload
+systemctl --user enable --now local-ai-memory.service
+journalctl --user -u local-ai-memory -f
+```
+
+**macOS (launchd):**
+
+```bash
+install -Dm644 bin/dev.aitemdev.local-ai-memory.plist ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
+launchctl load ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
+launchctl list | grep local-ai-memory
+```
+
+Both units assume `mem` is on `$PATH`. Edit the unit file for a custom binary location.
+
 ## Desktop app
 
 A Tauri 2 desktop shell sits in `src-tauri/` with the frontend in `dist/`. It reuses the same Rust core (search, ingest, embeddings, parsers) through `#[tauri::command]` handlers.

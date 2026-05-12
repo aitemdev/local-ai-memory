@@ -1,5 +1,7 @@
 pub mod chunker;
 pub mod cli;
+pub mod client;
+pub mod daemon;
 pub mod db;
 pub mod embeddings;
 pub mod extractors;
