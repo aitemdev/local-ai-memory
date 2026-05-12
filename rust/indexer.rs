@@ -61,13 +61,81 @@ pub fn collect_files(input: &Path) -> Vec<PathBuf> {
 }
 
 pub fn add_path(input: &Path, force: bool, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<IngestResult>> {
+    add_path_with_collection(input, force, overrides, None, base)
+}
+
+pub fn add_path_with_collection(
+    input: &Path,
+    force: bool,
+    overrides: &HashMap<String, String>,
+    collection: Option<&str>,
+    base: Option<PathBuf>,
+) -> Result<Vec<IngestResult>> {
+    let collection_id = match collection {
+        Some(name) if !name.is_empty() => Some(ensure_collection(name, base.clone())?),
+        _ => None,
+    };
     collect_files(input)
         .into_iter()
-        .map(|file| ingest_file(&file, force, overrides, base.clone()))
+        .map(|file| ingest_file_inner(&file, force, overrides, collection_id.as_deref(), base.clone()))
         .collect()
 }
 
 pub fn ingest_file(file: &Path, force: bool, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<IngestResult> {
+    ingest_file_inner(file, force, overrides, None, base)
+}
+
+pub fn ensure_collection(name: &str, base: Option<PathBuf>) -> Result<String> {
+    let (conn, _) = ensure_store(base)?;
+    let id: Option<String> = conn
+        .query_row("SELECT id FROM collections WHERE name = ?1", [name], |row| row.get(0))
+        .ok();
+    if let Some(id) = id {
+        return Ok(id);
+    }
+    let id = hash_text(&format!("collection:{name}"))[..16].to_string();
+    conn.execute(
+        "INSERT INTO collections (id, name, kind) VALUES (?1, ?2, 'manual')",
+        rusqlite::params![id, name],
+    )?;
+    Ok(id)
+}
+
+pub fn delete_collection(id_or_name: &str, base: Option<PathBuf>) -> Result<serde_json::Value> {
+    let (conn, _) = ensure_store(base.clone())?;
+    let resolved_id: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, name FROM collections WHERE id = ?1 OR name = ?1",
+            [id_or_name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    let Some((id, name)) = resolved_id else {
+        return Err(anyhow::anyhow!("collection {id_or_name} not found"));
+    };
+    let docs: Vec<String> = conn
+        .prepare("SELECT id FROM documents WHERE collection_id = ?1")?
+        .query_map([&id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(conn);
+    let mut removed = 0usize;
+    for doc_id in docs {
+        if delete_document(&doc_id, base.clone()).is_ok() {
+            removed += 1;
+        }
+    }
+    let (conn, _) = ensure_store(base)?;
+    conn.execute("DELETE FROM collections WHERE id = ?1", [&id])?;
+    Ok(serde_json::json!({ "id": id, "name": name, "documents_removed": removed }))
+}
+
+fn ingest_file_inner(
+    file: &Path,
+    force: bool,
+    overrides: &HashMap<String, String>,
+    collection_id: Option<&str>,
+    base: Option<PathBuf>,
+) -> Result<IngestResult> {
     let (conn, paths) = ensure_store(base.clone())?;
     let resolved = fs::canonicalize(file)?;
     let path_string = resolved.to_string_lossy().to_string();
@@ -85,8 +153,16 @@ pub fn ingest_file(file: &Path, force: bool, overrides: &HashMap<String, String>
         }
     }
 
-    match extract_document(&resolved).and_then(|extracted| index_extracted(&conn, &paths.canonical, &resolved, &document_id, &hash, &title, &doc_type, extracted, overrides, base)) {
-        Ok(chunks) => Ok(IngestResult { file: path_string, document_id, status: "ready".to_string(), chunks: Some(chunks), error: None }),
+    match extract_document(&resolved).and_then(|extracted| index_extracted(&conn, &paths.canonical, &resolved, &document_id, &hash, &title, &doc_type, extracted, overrides, base.clone())) {
+        Ok(chunks) => {
+            if let Some(cid) = collection_id {
+                let _ = conn.execute(
+                    "UPDATE documents SET collection_id = ?1 WHERE id = ?2",
+                    params![cid, document_id],
+                );
+            }
+            Ok(IngestResult { file: path_string, document_id, status: "ready".to_string(), chunks: Some(chunks), error: None })
+        }
         Err(error) => {
             conn.execute(
                 r#"
@@ -102,10 +178,25 @@ pub fn ingest_file(file: &Path, force: bool, overrides: &HashMap<String, String>
 }
 
 pub fn search_memory(query: &str, budget: &str, limit: Option<usize>, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<SearchResult>> {
+    search_with_collection(query, budget, limit, None, overrides, base)
+}
+
+pub fn search_with_collection(
+    query: &str,
+    budget: &str,
+    limit: Option<usize>,
+    collection: Option<&str>,
+    overrides: &HashMap<String, String>,
+    base: Option<PathBuf>,
+) -> Result<Vec<SearchResult>> {
     let (conn, _) = ensure_store(base.clone())?;
+    let collection_filter = match collection {
+        Some(name) if !name.is_empty() => Some(resolve_collection_id(&conn, name)?),
+        _ => None,
+    };
     let candidate_limit = limit.unwrap_or(10).max(40) * 4;
-    let fts = fts_search(&conn, query, candidate_limit)?;
-    let vector = vector_search(&conn, query, candidate_limit, overrides, base)?;
+    let fts = fts_search(&conn, query, candidate_limit, collection_filter.as_deref())?;
+    let vector = vector_search(&conn, query, candidate_limit, collection_filter.as_deref(), overrides, base)?;
     let mut merged: HashMap<String, SearchResult> = HashMap::new();
     for row in fts {
         merged.insert(row.chunk_id.clone(), row);
@@ -114,6 +205,15 @@ pub fn search_memory(query: &str, budget: &str, limit: Option<usize>, overrides:
         merged.entry(row.chunk_id.clone()).and_modify(|existing| existing.vector_score = row.vector_score).or_insert(row);
     }
     Ok(apply_budget(rerank(query, merged.into_values().collect()), budget, limit))
+}
+
+fn resolve_collection_id(conn: &Connection, name_or_id: &str) -> Result<String> {
+    conn.query_row(
+        "SELECT id FROM collections WHERE id = ?1 OR name = ?1",
+        [name_or_id],
+        |row| row.get(0),
+    )
+    .map_err(|_| anyhow::anyhow!("collection {name_or_id} not found"))
 }
 
 pub fn reset_store(base: Option<PathBuf>) -> Result<serde_json::Value> {
@@ -295,7 +395,14 @@ pub fn delete_document(document_id: &str, base: Option<PathBuf>) -> Result<serde
 
 pub fn list_collections(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>> {
     let (conn, _) = ensure_store(base)?;
-    let mut stmt = conn.prepare("SELECT id, name, path, kind, created_at FROM collections ORDER BY created_at DESC")?;
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT c.id, c.name, c.path, c.kind, c.created_at,
+               COALESCE((SELECT COUNT(*) FROM documents d WHERE d.collection_id = c.id), 0)
+        FROM collections c
+        ORDER BY c.created_at DESC
+        "#,
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(serde_json::json!({
             "id": row.get::<_, String>(0)?,
@@ -303,6 +410,7 @@ pub fn list_collections(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>>
             "path": row.get::<_, Option<String>>(2)?,
             "kind": row.get::<_, String>(3)?,
             "created_at": row.get::<_, String>(4)?,
+            "documents": row.get::<_, i64>(5)?,
         }))
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -396,7 +504,7 @@ fn chunks_from_extraction(extracted: &ExtractedDocument) -> Vec<Chunk> {
     chunks
 }
 
-fn fts_search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+fn fts_search(conn: &Connection, query: &str, limit: usize, collection_id: Option<&str>) -> Result<Vec<SearchResult>> {
     let fts_query = query
         .split_whitespace()
         .map(|term| format!("\"{}\"", term.replace('"', "")))
@@ -405,22 +513,30 @@ fn fts_search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<Search
     if fts_query.is_empty() {
         return Ok(Vec::new());
     }
-    let mut stmt = conn.prepare(
+    let extra_filter = if collection_id.is_some() { "AND d.collection_id = ?3" } else { "" };
+    let sql = format!(
         r#"
         SELECT c.id, c.document_id, c.text, c.heading, c.page, c.slide, c.token_count, d.title, d.path, -bm25(chunks_fts) AS score
         FROM chunks_fts
         JOIN chunks c ON c.id = chunks_fts.chunk_id
         JOIN documents d ON d.id = c.document_id
-        WHERE chunks_fts MATCH ?1
+        WHERE chunks_fts MATCH ?1 {extra_filter}
         ORDER BY bm25(chunks_fts)
         LIMIT ?2
-        "#,
-    )?;
-    let rows = stmt.query_map(params![fts_query, limit as i64], row_to_search_result)?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        "#
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows: Vec<_> = if let Some(cid) = collection_id {
+        stmt.query_map(params![fts_query, limit as i64, cid], row_to_search_result)?
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        stmt.query_map(params![fts_query, limit as i64], row_to_search_result)?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(rows)
 }
 
-fn vector_search(conn: &Connection, query: &str, limit: usize, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<SearchResult>> {
+fn vector_search(conn: &Connection, query: &str, limit: usize, collection_id: Option<&str>, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<SearchResult>> {
     let embedding = embed_text(query, base.clone(), overrides)?;
     let key = embedding_key(&embedding);
     let store_base = base.unwrap_or_else(crate::paths::memory_home);
@@ -430,16 +546,21 @@ fn vector_search(conn: &Connection, query: &str, limit: usize, overrides: &HashM
         return Ok(Vec::new());
     }
     let placeholders = (0..hits.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let extra_filter = if collection_id.is_some() { "AND d.collection_id = ?" } else { "" };
     let sql = format!(
         r#"
         SELECT c.id, c.document_id, c.text, c.heading, c.page, c.slide, c.token_count, d.title, d.path
         FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE c.id IN ({placeholders})
+        WHERE c.id IN ({placeholders}) {extra_filter}
         "#
     );
     let mut stmt = conn.prepare(&sql)?;
     let chunk_ids: Vec<String> = hits.iter().map(|h| h.chunk_id.clone()).collect();
-    let params: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let collection_owned: Option<String> = collection_id.map(|s| s.to_string());
+    let mut params: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    if let Some(ref cid) = collection_owned {
+        params.push(cid);
+    }
     let mut by_id: HashMap<String, SearchResult> = stmt
         .query_map(&params[..], row_to_search_result_no_score)?
         .collect::<Result<Vec<_>, _>>()?

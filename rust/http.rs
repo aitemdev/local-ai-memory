@@ -2,8 +2,8 @@ use crate::{
     embeddings::{default_model, resolve_config},
     extractors::parser_status,
     indexer::{
-        add_path, delete_document, get_chunk, get_document, list_collections, list_documents,
-        reset_store, search_memory, status,
+        add_path_with_collection, delete_collection, delete_document, get_chunk, get_document,
+        list_collections, list_documents, reset_store, search_with_collection, status,
     },
     settings::{list_settings, set_settings},
     watch_manager::{self, EventSink, WatchEvent},
@@ -30,6 +30,13 @@ struct AddBody {
     paths: Vec<String>,
     #[serde(default)]
     force: bool,
+    #[serde(default)]
+    collection: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CollectionBody {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -177,7 +184,15 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
             let q = params.get("q").cloned().unwrap_or_default();
             let budget = params.get("budget").cloned().unwrap_or_else(|| "normal".to_string());
             let limit = params.get("limit").and_then(|v| v.parse().ok());
-            let results = search_memory(&q, &budget, limit, &HashMap::new(), None)?;
+            let collection = params.get("collection").cloned();
+            let results = search_with_collection(
+                &q,
+                &budget,
+                limit,
+                collection.as_deref(),
+                &HashMap::new(),
+                None,
+            )?;
             json_response(request, &results)
         }
         (Method::Post, "/api/add") => {
@@ -185,12 +200,23 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
             let parsed: AddBody = serde_json::from_str(&body)?;
             let mut all = Vec::new();
             for raw in parsed.paths {
-                let results = add_path(Path::new(&raw), parsed.force, &HashMap::new(), None)?;
+                let results = add_path_with_collection(
+                    Path::new(&raw),
+                    parsed.force,
+                    &HashMap::new(),
+                    parsed.collection.as_deref(),
+                    None,
+                )?;
                 for r in results {
                     all.push(serde_json::to_value(r)?);
                 }
             }
             json_response(request, &all)
+        }
+        (Method::Post, "/api/collection/delete") => {
+            let body = read_body(&mut request)?;
+            let parsed: CollectionBody = serde_json::from_str(&body)?;
+            json_response(request, &delete_collection(&parsed.name, None)?)
         }
         (Method::Post, "/api/reset") => {
             let result = reset_store(None)?;

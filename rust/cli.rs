@@ -1,7 +1,10 @@
 use crate::{
     embeddings::{default_model, embed_text, resolve_config},
     extractors::parser_status,
-    indexer::{add_path, init_store, reset_store, search_memory, status},
+    indexer::{
+        add_path_with_collection, delete_collection, init_store, list_collections, reset_store,
+        search_with_collection, status,
+    },
     paths::memory_home,
     settings::{list_settings, set_settings},
 };
@@ -38,6 +41,10 @@ enum Command {
     Daemon(DaemonArgs),
     Watch { path: PathBuf },
     Tui,
+    Collections {
+        #[command(subcommand)]
+        command: CollectionCommand,
+    },
     Export { path: PathBuf },
     Import {
         path: PathBuf,
@@ -85,6 +92,8 @@ struct AddArgs {
     dimensions: Option<usize>,
     #[arg(long)]
     force: bool,
+    #[arg(long)]
+    collection: Option<String>,
 }
 
 #[derive(Args)]
@@ -98,6 +107,14 @@ struct SearchArgs {
     json: bool,
     #[arg(long)]
     debug: bool,
+    #[arg(long)]
+    collection: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum CollectionCommand {
+    List,
+    Delete { name: String },
 }
 
 #[derive(Subcommand)]
@@ -129,14 +146,26 @@ pub fn run() -> Result<()> {
             if let Some(value) = via_daemon_add(&args)? {
                 println!("{}", serde_json::to_string_pretty(&value)?);
             } else {
-                let results = add_path(&args.path, args.force, &embedding_overrides(&args), None)?;
+                let results = add_path_with_collection(
+                    &args.path,
+                    args.force,
+                    &embedding_overrides(&args),
+                    args.collection.as_deref(),
+                    None,
+                )?;
                 for result in results {
                     println!("{}", serde_json::to_string(&result)?);
                 }
             }
         }
         Command::Reindex(args) => {
-            let results = add_path(&args.path, true, &embedding_overrides(&args), None)?;
+            let results = add_path_with_collection(
+                &args.path,
+                true,
+                &embedding_overrides(&args),
+                args.collection.as_deref(),
+                None,
+            )?;
             for result in results {
                 println!("{}", serde_json::to_string(&result)?);
             }
@@ -180,6 +209,16 @@ pub fn run() -> Result<()> {
         Command::Daemon(args) => run_daemon(args)?,
         Command::Watch { path } => crate::watcher::watch(&path)?,
         Command::Tui => crate::tui::run()?,
+        Command::Collections { command } => match command {
+            CollectionCommand::List => {
+                let value = list_collections(None)?;
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            }
+            CollectionCommand::Delete { name } => {
+                let value = delete_collection(&name, None)?;
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            }
+        },
         Command::Export { path } => {
             let result = crate::backup::export(&path, None)?;
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -257,9 +296,19 @@ fn run_search(args: SearchArgs) -> Result<()> {
         if let Some(limit) = args.limit {
             path.push_str(&format!("&limit={limit}"));
         }
+        if let Some(collection) = args.collection.as_deref() {
+            path.push_str(&format!("&collection={}", crate::client::url_encode(collection)));
+        }
         serde_json::from_value(crate::client::get(&path)?)?
     } else {
-        search_memory(&query, &args.budget, args.limit, &HashMap::new(), None)?
+        search_with_collection(
+            &query,
+            &args.budget,
+            args.limit,
+            args.collection.as_deref(),
+            &HashMap::new(),
+            None,
+        )?
     };
     if args.json {
         println!("{}", serde_json::to_string_pretty(&rows)?);
