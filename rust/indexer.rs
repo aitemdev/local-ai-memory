@@ -227,6 +227,40 @@ pub fn list_documents(base: Option<PathBuf>) -> Result<Vec<serde_json::Value>> {
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+pub fn delete_document_by_path(path: &Path, base: Option<PathBuf>) -> Result<Option<serde_json::Value>> {
+    let canonical = fs::canonicalize(path)
+        .ok()
+        .or_else(|| {
+            let parent = path.parent()?;
+            let canonical_parent = fs::canonicalize(parent).ok()?;
+            let name = path.file_name()?;
+            Some(canonical_parent.join(name))
+        })
+        .unwrap_or_else(|| path.to_path_buf());
+    let key = canonical.to_string_lossy().to_string();
+    let (conn, _) = ensure_store(base.clone())?;
+    let id: Option<String> = conn
+        .query_row("SELECT id FROM documents WHERE path = ?1", [&key], |row| row.get(0))
+        .ok();
+    drop(conn);
+    match id {
+        Some(id) => Ok(Some(delete_document(&id, base)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn documents_under(prefix: &Path, base: Option<PathBuf>) -> Result<Vec<(String, PathBuf)>> {
+    let canonical = fs::canonicalize(prefix).unwrap_or_else(|_| prefix.to_path_buf());
+    let key = canonical.to_string_lossy().to_string();
+    let pattern = format!("{key}%");
+    let (conn, _) = ensure_store(base)?;
+    let mut stmt = conn.prepare("SELECT id, path FROM documents WHERE path LIKE ?1")?;
+    let rows = stmt.query_map([&pattern], |row| {
+        Ok((row.get::<_, String>(0)?, PathBuf::from(row.get::<_, String>(1)?)))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 pub fn delete_document(document_id: &str, base: Option<PathBuf>) -> Result<serde_json::Value> {
     let (conn, paths) = ensure_store(base.clone())?;
     let row: Option<(String, String, Option<String>, Option<String>)> = conn

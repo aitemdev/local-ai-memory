@@ -109,6 +109,11 @@ fn log_event(event: &WatchEvent) {
                 "error": error,
             })
         }
+        WatchEvent::Removed { folder, path } => json!({
+            "kind": "removed",
+            "folder": folder.to_string_lossy(),
+            "file": path.to_string_lossy(),
+        }),
         WatchEvent::ScanComplete(p) => json!({ "kind": "scan-complete", "folder": p.to_string_lossy() }),
         WatchEvent::Stopped(p) => json!({ "kind": "stopped", "folder": p.to_string_lossy() }),
         WatchEvent::Error { folder, message } => json!({

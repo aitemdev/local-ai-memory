@@ -1,6 +1,6 @@
 use crate::{
     extractors::supported_extension,
-    indexer::{collect_files, ingest_file, IngestResult},
+    indexer::{collect_files, delete_document_by_path, documents_under, ingest_file, IngestResult},
     settings::{get_settings, set_settings},
 };
 use anyhow::Result;
@@ -31,6 +31,7 @@ pub enum WatchEvent {
         result: Result<IngestResult, String>,
         path: PathBuf,
     },
+    Removed { folder: PathBuf, path: PathBuf },
     ScanComplete(PathBuf),
     Stopped(PathBuf),
     Error { folder: PathBuf, message: String },
@@ -135,12 +136,17 @@ fn run_watcher(root: PathBuf, stop: Arc<AtomicBool>, sink: EventSink) -> Result<
     let initial = collect_files(&root);
     let total = initial.len();
     sink(WatchEvent::ScanStart { folder: root.clone(), total });
+    let initial_set: HashSet<PathBuf> = initial
+        .iter()
+        .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
+        .collect();
     for (i, file) in initial.into_iter().enumerate() {
         if stop.load(Ordering::SeqCst) {
             break;
         }
         run_ingest(&root, &file, i + 1, total, "scan", &sink);
     }
+    reconcile_missing(&root, &initial_set, &sink);
     sink(WatchEvent::ScanComplete(root.clone()));
 
     let (tx, rx) = mpsc::channel();
@@ -150,6 +156,7 @@ fn run_watcher(root: PathBuf, stop: Arc<AtomicBool>, sink: EventSink) -> Result<
     watcher.watch(&root, RecursiveMode::Recursive)?;
 
     let mut pending: HashMap<PathBuf, Instant> = HashMap::new();
+    let mut removed: HashSet<PathBuf> = HashSet::new();
     while !stop.load(Ordering::SeqCst) {
         let next_deadline = pending.values().min().copied();
         let timeout = match next_deadline {
@@ -159,28 +166,41 @@ fn run_watcher(root: PathBuf, stop: Arc<AtomicBool>, sink: EventSink) -> Result<
             None => Duration::from_millis(500),
         };
         match rx.recv_timeout(timeout) {
-            Ok(Ok(event)) => collect_pending(&event, &mut pending),
+            Ok(Ok(event)) => collect_pending(&event, &mut pending, &mut removed),
             Ok(Err(_)) => {}
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
         flush_due(&root, &mut pending, &sink);
+        flush_removed(&root, &mut removed, &sink);
     }
 
     sink(WatchEvent::Stopped(root));
     Ok(())
 }
 
-fn collect_pending(event: &Event, pending: &mut HashMap<PathBuf, Instant>) {
+fn collect_pending(
+    event: &Event,
+    pending: &mut HashMap<PathBuf, Instant>,
+    removed: &mut HashSet<PathBuf>,
+) {
     if !matches!(
         event.kind,
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     ) {
         return;
     }
+    let is_remove = matches!(event.kind, EventKind::Remove(_));
     let deadline = Instant::now() + DEBOUNCE;
     let mut seen = HashSet::new();
     for path in &event.paths {
+        if is_remove {
+            if seen.insert(path.clone()) {
+                pending.remove(path);
+                removed.insert(path.clone());
+            }
+            continue;
+        }
         if !path.is_file() {
             continue;
         }
@@ -188,6 +208,7 @@ fn collect_pending(event: &Event, pending: &mut HashMap<PathBuf, Instant>) {
             continue;
         }
         if seen.insert(path.clone()) {
+            removed.remove(path);
             pending.insert(path.clone(), deadline);
         }
     }
@@ -203,6 +224,58 @@ fn flush_due(root: &Path, pending: &mut HashMap<PathBuf, Instant>, sink: &EventS
     for path in due {
         pending.remove(&path);
         run_ingest(root, &path, 0, 0, "live", sink);
+    }
+}
+
+fn flush_removed(root: &Path, removed: &mut HashSet<PathBuf>, sink: &EventSink) {
+    if removed.is_empty() {
+        return;
+    }
+    let paths: Vec<PathBuf> = removed.iter().cloned().collect();
+    removed.clear();
+    for path in paths {
+        if path.exists() {
+            continue;
+        }
+        match delete_document_by_path(&path, None) {
+            Ok(Some(_)) => sink(WatchEvent::Removed {
+                folder: root.to_path_buf(),
+                path,
+            }),
+            Ok(None) => {}
+            Err(error) => sink(WatchEvent::Error {
+                folder: root.to_path_buf(),
+                message: format!("remove {}: {}", path.display(), error),
+            }),
+        }
+    }
+}
+
+fn reconcile_missing(root: &Path, present: &HashSet<PathBuf>, sink: &EventSink) {
+    let docs = match documents_under(root, None) {
+        Ok(d) => d,
+        Err(error) => {
+            sink(WatchEvent::Error {
+                folder: root.to_path_buf(),
+                message: format!("reconcile: {error}"),
+            });
+            return;
+        }
+    };
+    for (id, path) in docs {
+        if present.contains(&path) || path.exists() {
+            continue;
+        }
+        match crate::indexer::delete_document(&id, None) {
+            Ok(_) => sink(WatchEvent::Removed {
+                folder: root.to_path_buf(),
+                path,
+            }),
+            Err(error) => sink(WatchEvent::Error {
+                folder: root.to_path_buf(),
+                message: format!("reconcile delete {}: {}", id, error),
+            }),
+        }
     }
 }
 
