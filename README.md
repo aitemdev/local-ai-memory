@@ -109,10 +109,39 @@ cargo run -- reindex /path/to/docs
 
 API keys are read from environment variables, not stored in SQLite. Changing provider or model requires `reindex` so stored vectors match query vectors.
 
+## Interactive TUI
+
+```bash
+cargo run -- tui
+```
+
+Keyboard shortcuts:
+
+- `Tab` / `Shift+Tab`: switch panel
+- Config panel: `↑/↓` to pick a provider, `Enter` to persist (reindex required after)
+- Search panel: type a query, `Enter` to search, `Esc` to clear, `Ctrl+C` to quit
+- `q`: quit from any non-input panel
+
+## File watching
+
+Reindex on the fly while you edit:
+
+```bash
+cargo run -- watch ./notes
+```
+
+The watcher runs an initial scan, then debounces filesystem events (~750 ms) before reindexing modified or newly created files in place.
+
 ## Tests
 
 ```bash
 cargo test
+```
+
+The Ollama smoke test is gated behind an environment variable so the default suite stays offline:
+
+```bash
+MEM_OLLAMA_TEST=1 cargo test -- --ignored
 ```
 
 ## Legacy Node MVP

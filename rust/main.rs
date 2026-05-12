@@ -10,6 +10,8 @@ mod mcp;
 mod paths;
 mod reranker;
 mod settings;
+mod tui;
+mod watcher;
 
 fn main() {
     if let Err(error) = cli::run() {

@@ -189,6 +189,25 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    #[ignore]
+    fn ollama_embeddings_smoke() {
+        if std::env::var("MEM_OLLAMA_TEST").is_err() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join(".memoria");
+        crate::indexer::init_store(Some(base.clone())).unwrap();
+        let mut overrides = HashMap::new();
+        overrides.insert("provider".to_string(), "ollama".to_string());
+        overrides.insert("model".to_string(), "nomic-embed-text".to_string());
+        overrides.insert("base_url".to_string(), "http://localhost:11434/v1".to_string());
+        let embedding = embed_text("smoke test for ollama embeddings", Some(base), &overrides).unwrap();
+        assert_eq!(embedding.provider, "ollama");
+        assert!(embedding.dimensions >= 256);
+        assert!(embedding.vector.iter().any(|v| v.abs() > 1e-6));
+    }
+
+    #[test]
     fn resolves_configured_provider_from_local_settings() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join(".memoria");

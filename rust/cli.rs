@@ -31,6 +31,8 @@ enum Command {
         command: Option<EmbeddingCommand>,
     },
     Serve(ServeArgs),
+    Watch { path: PathBuf },
+    Tui,
 }
 
 #[derive(Args)]
@@ -119,6 +121,8 @@ pub fn run() -> Result<()> {
         Command::Parsers => println!("{}", serde_json::to_string_pretty(&parser_status())?),
         Command::Embeddings { command } => run_embeddings(command)?,
         Command::Serve(args) => run_serve(args)?,
+        Command::Watch { path } => crate::watcher::watch(&path)?,
+        Command::Tui => crate::tui::run()?,
     }
     Ok(())
 }
