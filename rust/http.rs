@@ -1,7 +1,10 @@
 use crate::{
     embeddings::{default_model, resolve_config},
     extractors::parser_status,
-    indexer::{add_path, delete_document, list_documents, reset_store, search_memory, status},
+    indexer::{
+        add_path, delete_document, get_chunk, get_document, list_collections, list_documents,
+        reset_store, search_memory, status,
+    },
     settings::{list_settings, set_settings},
     watch_manager::{self, EventSink, WatchEvent},
 };
@@ -149,6 +152,15 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
             json_response(request, &result)
         }
         (Method::Get, "/api/documents") => json_response(request, &list_documents(None)?),
+        (Method::Get, "/api/collections") => json_response(request, &list_collections(None)?),
+        (Method::Get, p) if p.starts_with("/api/document/") && p != "/api/document/delete" => {
+            let id = p.trim_start_matches("/api/document/");
+            json_response(request, &get_document(id, None)?)
+        }
+        (Method::Get, p) if p.starts_with("/api/chunk/") => {
+            let id = p.trim_start_matches("/api/chunk/");
+            json_response(request, &get_chunk(id, None)?)
+        }
         (Method::Post, "/api/document/delete") => {
             let body = read_body(&mut request)?;
             let parsed: DocumentBody = serde_json::from_str(&body)?;

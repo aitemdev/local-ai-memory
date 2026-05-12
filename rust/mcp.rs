@@ -1,4 +1,7 @@
-use crate::indexer::{get_chunk, get_document, list_collections, search_memory};
+use crate::{
+    client,
+    indexer::{get_chunk, get_document, list_collections, search_memory},
+};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::{
@@ -61,22 +64,49 @@ fn handle_request(message: &Value) -> Result<Value> {
 fn handle_tool_call(params: Value) -> Result<Value> {
     let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
+    let via_daemon = client::endpoint().is_some();
     let payload = match name {
         "search_memory" => {
             let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("");
             let budget = args.get("budget").and_then(|b| b.as_str()).unwrap_or("low");
             let limit = args.get("limit").and_then(|l| l.as_u64()).map(|n| n as usize);
-            serde_json::to_value(search_memory(query, budget, limit, &HashMap::new(), None)?)?
+            if via_daemon {
+                let mut path = format!(
+                    "/api/search?q={}&budget={}",
+                    client::url_encode(query),
+                    client::url_encode(budget)
+                );
+                if let Some(n) = limit {
+                    path.push_str(&format!("&limit={n}"));
+                }
+                client::get(&path)?
+            } else {
+                serde_json::to_value(search_memory(query, budget, limit, &HashMap::new(), None)?)?
+            }
         }
         "get_document" => {
             let id = args.get("document_id").and_then(|i| i.as_str()).unwrap_or("");
-            get_document(id, None)?
+            if via_daemon {
+                client::get(&format!("/api/document/{}", client::url_encode(id)))?
+            } else {
+                get_document(id, None)?
+            }
         }
         "get_chunk" => {
             let id = args.get("chunk_id").and_then(|i| i.as_str()).unwrap_or("");
-            get_chunk(id, None)?
+            if via_daemon {
+                client::get(&format!("/api/chunk/{}", client::url_encode(id)))?
+            } else {
+                get_chunk(id, None)?
+            }
         }
-        "list_collections" => json!(list_collections(None)?),
+        "list_collections" => {
+            if via_daemon {
+                client::get("/api/collections")?
+            } else {
+                json!(list_collections(None)?)
+            }
+        }
         other => return Err(anyhow::anyhow!("Unknown tool: {other}")),
     };
     Ok(json!({
