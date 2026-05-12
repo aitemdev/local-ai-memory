@@ -77,6 +77,16 @@
             <button class="seg" data-budget="wide" role="tab" aria-selected="false">Wide</button>
           </div>
         </div>
+        <div class="scope-row">
+          <span class="eyebrow">Scope</span>
+          <div id="scope-chips" class="scope-chips">
+            <button class="scope-chip is-active" data-collection="">All</button>
+          </div>
+        </div>
+        <div id="search-history" class="search-history" hidden>
+          <span class="eyebrow">Recent</span>
+          <div id="search-history-list" class="search-history-list"></div>
+        </div>
 
         <div id="search-empty" class="search-empty">
           <p class="search-empty-eyebrow">Try</p>
@@ -107,13 +117,23 @@
             <span class="stat-num" id="meta-ready">—</span>
             <span class="stat-label">Indexed documents</span>
           </div>
-          <div class="stat">
+          <button class="stat stat-clickable" id="meta-error-btn" type="button">
             <span class="stat-num" id="meta-error">—</span>
             <span class="stat-label">With errors</span>
-          </div>
+          </button>
           <div class="stat">
             <span class="stat-num" id="meta-jobs">—</span>
             <span class="stat-label">Jobs in queue</span>
+          </div>
+        </section>
+
+        <section class="collections" id="collections-section">
+          <header class="ingest-head">
+            <h2 class="section-title">Collections</h2>
+            <span class="eyebrow" id="collections-count">0</span>
+          </header>
+          <div id="collections-list" class="watched-list">
+            <p class="ingest-empty">No collections yet. Use <code>mem add --collection name</code> or the CLI.</p>
           </div>
         </section>
 

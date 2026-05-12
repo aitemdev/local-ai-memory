@@ -6,8 +6,8 @@ use nolost::{
     embeddings::{default_model, resolve_config, EmbeddingConfig},
     extractors::parser_status,
     indexer::{
-        collect_files, delete_document, ingest_file, list_documents, reset_store, search_memory,
-        status, SearchResult,
+        collect_files, delete_collection, delete_document, ingest_file, list_collections,
+        list_documents, reset_store, search_with_collection, status, SearchResult,
     },
     settings::{list_settings, set_settings, SettingRow},
 };
@@ -65,9 +65,32 @@ fn app_status() -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn app_search(query: String, budget: Option<String>, limit: Option<usize>) -> Result<Vec<SearchResult>, String> {
+fn app_search(
+    query: String,
+    budget: Option<String>,
+    limit: Option<usize>,
+    collection: Option<String>,
+) -> Result<Vec<SearchResult>, String> {
     let budget = budget.unwrap_or_else(|| "normal".to_string());
-    search_memory(&query, &budget, limit, &HashMap::new(), None).map_err(stringify)
+    search_with_collection(
+        &query,
+        &budget,
+        limit,
+        collection.as_deref(),
+        &HashMap::new(),
+        None,
+    )
+    .map_err(stringify)
+}
+
+#[tauri::command]
+fn app_collections() -> Result<Vec<Value>, String> {
+    list_collections(None).map_err(stringify)
+}
+
+#[tauri::command]
+fn app_delete_collection(name: String) -> Result<Value, String> {
+    delete_collection(&name, None).map_err(stringify)
 }
 
 #[tauri::command]
@@ -253,6 +276,8 @@ fn main() {
             app_reset_library,
             app_list_documents,
             app_delete_document,
+            app_collections,
+            app_delete_collection,
             app_watch_folder,
             app_unwatch_folder,
             app_watched_folders,

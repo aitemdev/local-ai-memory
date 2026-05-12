@@ -35,6 +35,12 @@ const els = {
   watchedCount: document.getElementById("watched-count"),
   docsList: document.getElementById("docs-list"),
   docsCount: document.getElementById("docs-count"),
+  scopeChips: document.getElementById("scope-chips"),
+  searchHistory: document.getElementById("search-history"),
+  searchHistoryList: document.getElementById("search-history-list"),
+  collectionsList: document.getElementById("collections-list"),
+  collectionsCount: document.getElementById("collections-count"),
+  metaErrorBtn: document.getElementById("meta-error-btn"),
   providerList: document.getElementById("provider-list"),
   providers: document.querySelectorAll(".provider"),
   parserDetail: document.getElementById("parser-detail"),
@@ -50,7 +56,49 @@ const state = {
   searchSeq: 0,
   ingestHistory: [],
   docCount: 0,
+  collection: "",
+  history: loadHistory(),
 };
+
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem("nolost.history") || "[]").slice(0, 8);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem("nolost.history", JSON.stringify(state.history.slice(0, 8)));
+  } catch (_) {}
+}
+
+function pushHistory(query) {
+  const trimmed = query.trim();
+  if (!trimmed) return;
+  state.history = [trimmed, ...state.history.filter((q) => q !== trimmed)].slice(0, 8);
+  saveHistory();
+  renderHistory();
+}
+
+function renderHistory() {
+  if (!els.searchHistory) return;
+  if (state.history.length === 0) {
+    els.searchHistory.hidden = true;
+    return;
+  }
+  els.searchHistory.hidden = false;
+  els.searchHistoryList.innerHTML = state.history
+    .map((q) => `<button class="history-chip" data-query="${escape(q)}">${escape(q)}</button>`)
+    .join("");
+  els.searchHistoryList.querySelectorAll(".history-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      els.searchInput.value = btn.dataset.query;
+      runSearch();
+    });
+  });
+}
 
 init().catch((err) => toast(`init failed: ${err}`));
 
@@ -66,6 +114,69 @@ async function init() {
   await refreshParsers();
   await refreshWatched();
   await refreshDocs();
+  await refreshCollections();
+  renderHistory();
+}
+
+async function refreshCollections() {
+  try {
+    const list = await invoke("app_collections");
+    renderCollections(Array.isArray(list) ? list : []);
+  } catch (err) {
+    if (els.collectionsList) {
+      els.collectionsList.innerHTML = `<p class="ingest-empty">error: ${escape(String(err))}</p>`;
+    }
+  }
+}
+
+function renderCollections(items) {
+  if (els.collectionsCount) els.collectionsCount.textContent = String(items.length);
+  renderScopeChips(items);
+  if (!els.collectionsList) return;
+  if (items.length === 0) {
+    els.collectionsList.innerHTML = `<p class="ingest-empty">No collections yet. Use <code>mem add --collection name</code>.</p>`;
+    return;
+  }
+  els.collectionsList.innerHTML = items.map((c) => `
+    <div class="collection-row" data-name="${escape(c.name)}">
+      <span class="name">${escape(c.name)}</span>
+      <span class="count">${c.documents} doc${c.documents === 1 ? '' : 's'}</span>
+      <button class="remove" data-name="${escape(c.name)}" type="button">Remove</button>
+    </div>
+  `).join("");
+  els.collectionsList.querySelectorAll(".remove").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const name = btn.dataset.name;
+      if (!confirm(`Remove collection "${name}"? This deletes all documents inside it.`)) return;
+      btn.disabled = true;
+      try {
+        await invoke("app_delete_collection", { name });
+        await refreshCollections();
+        await refreshStatus();
+        await refreshDocs();
+        toast(`Collection ${name} removed`);
+      } catch (err) {
+        btn.disabled = false;
+        toast(String(err));
+      }
+    });
+  });
+}
+
+function renderScopeChips(items) {
+  if (!els.scopeChips) return;
+  const chips = [
+    `<button class="scope-chip ${state.collection === '' ? 'is-active' : ''}" data-collection="">All</button>`,
+    ...items.map((c) => `<button class="scope-chip ${state.collection === c.name ? 'is-active' : ''}" data-collection="${escape(c.name)}">${escape(c.name)}</button>`),
+  ];
+  els.scopeChips.innerHTML = chips.join("");
+  els.scopeChips.querySelectorAll(".scope-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.collection = btn.dataset.collection || "";
+      renderScopeChips(items);
+      if (els.searchInput.value.trim()) runSearch();
+    });
+  });
 }
 
 async function refreshDocs() {
@@ -84,16 +195,22 @@ function renderDocs(docs) {
     els.docsList.innerHTML = `<p class="ingest-empty">No documents indexed yet.</p>`;
     return;
   }
-  els.docsList.innerHTML = docs.map((d) => `
-    <div class="doc-row" data-id="${escape(d.id)}">
+  state.lastDocs = docs;
+  els.docsList.innerHTML = docs.map((d) => {
+    const isError = d.status === "error";
+    const detail = isError ? `<span class="sub" style="color:var(--danger)" title="${escape(d.error || '')}">${escape(d.error || 'error')}</span>` :
+      `<span class="sub" title="${escape(d.path || '')}">${escape(shortPath(d.path || ''))}</span>`;
+    return `
+    <div class="doc-row ${isError ? 'is-error' : ''}" data-id="${escape(d.id)}">
       <div class="meta">
         <span class="title" title="${escape(d.title || '')}">${escape(d.title || '(untitled)')}</span>
-        <span class="sub" title="${escape(d.path || '')}">${escape(shortPath(d.path || ''))}</span>
+        ${detail}
       </div>
       <span class="chunks">${d.chunks ?? 0} chunk${(d.chunks ?? 0) === 1 ? '' : 's'}</span>
       <button class="delete" data-id="${escape(d.id)}" type="button">Remove</button>
     </div>
-  `).join("");
+    `;
+  }).join("");
   els.docsList.querySelectorAll(".delete").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
@@ -147,7 +264,7 @@ function switchSection(target) {
   els.panels.forEach((panel) => {
     panel.hidden = panel.dataset.panel !== target;
   });
-  if (target === "library") { refreshStatus(); refreshDocs(); }
+  if (target === "library") { refreshStatus(); refreshDocs(); refreshCollections(); }
   if (target === "settings") { refreshEmbeddings(); refreshParsers(); }
   if (target === "search") setTimeout(() => els.searchInput.focus(), 60);
 }
@@ -192,8 +309,14 @@ async function runSearch() {
   if (!query) { renderResults([]); return; }
   const seq = ++state.searchSeq;
   try {
-    const results = await invoke("app_search", { query, budget: state.budget, limit: null });
+    const results = await invoke("app_search", {
+      query,
+      budget: state.budget,
+      limit: null,
+      collection: state.collection || null,
+    });
     if (seq !== state.searchSeq) return;
+    pushHistory(query);
     renderResults(results);
   } catch (err) {
     toast(String(err));
@@ -375,6 +498,19 @@ function wireLibrary() {
     els.ingestCancel.textContent = "Cancelling…";
     try { await invoke("app_cancel_ingest"); } catch (_) {}
   });
+
+  if (els.metaErrorBtn) {
+    els.metaErrorBtn.addEventListener("click", async () => {
+      const docs = state.lastDocs || (await invoke("app_list_documents"));
+      const errored = (docs || []).filter((d) => d.status === "error");
+      if (errored.length === 0) {
+        toast("No errors to show");
+        return;
+      }
+      renderDocs(errored);
+      toast(`Showing ${errored.length} error(s)`);
+    });
+  }
 
   let resetArmed = false;
   let resetTimer = null;
