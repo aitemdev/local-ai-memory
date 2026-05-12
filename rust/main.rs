@@ -11,6 +11,7 @@ mod paths;
 mod reranker;
 mod settings;
 mod tui;
+mod vector_store;
 mod watcher;
 
 fn main() {

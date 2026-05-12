@@ -1,10 +1,11 @@
 use crate::{
     chunker::{Chunk, chunk_markdown},
     db::ensure_store,
-    embeddings::{cosine_similarity, embed_text, embedding_key},
+    embeddings::{embed_text, embedding_key},
     extractors::{ExtractedDocument, extract_document, supported_extension},
     hash::{hash_file, hash_text},
     reranker::{apply_budget, rerank},
+    vector_store::{VectorRow, VectorStore},
 };
 use anyhow::Result;
 use rusqlite::{Connection, params};
@@ -213,6 +214,7 @@ fn index_extracted(
     conn.execute("DELETE FROM chunks WHERE document_id = ?1", [document_id])?;
 
     let chunks = chunks_from_extraction(&extracted);
+    let mut vector_rows_by_table: HashMap<(String, usize), Vec<VectorRow>> = HashMap::new();
     for chunk in &chunks {
         let chunk_id = &hash_text(&format!("{document_id}:{}", chunk.hash))[..32];
         conn.execute(
@@ -224,10 +226,20 @@ fn index_extracted(
             params![chunk_id, document_id, title, chunk.text],
         )?;
         let embedding = embed_text(&chunk.text, base.clone(), overrides)?;
-        conn.execute(
-            "INSERT OR REPLACE INTO embeddings (chunk_id, model, dimensions, vector_json) VALUES (?1, ?2, ?3, ?4)",
-            params![chunk_id, embedding_key(&embedding), embedding.dimensions as i64, serde_json::to_string(&embedding.vector)?],
-        )?;
+        vector_rows_by_table
+            .entry((embedding_key(&embedding), embedding.dimensions))
+            .or_default()
+            .push(VectorRow {
+                chunk_id: chunk_id.to_string(),
+                document_id: document_id.to_string(),
+                vector: embedding.vector,
+            });
+    }
+    let store_base = base.clone().unwrap_or_else(crate::paths::memory_home);
+    let store = VectorStore::open(&store_base)?;
+    store.delete_document(document_id)?;
+    for ((model, dim), rows) in vector_rows_by_table {
+        store.upsert(&model, dim, &rows)?;
     }
     conn.execute("UPDATE documents SET status = 'ready', error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?1", [document_id])?;
     Ok(chunks.len())
@@ -284,29 +296,70 @@ fn fts_search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<Search
 }
 
 fn vector_search(conn: &Connection, query: &str, limit: usize, overrides: &HashMap<String, String>, base: Option<PathBuf>) -> Result<Vec<SearchResult>> {
-    let embedding = embed_text(query, base, overrides)?;
+    let embedding = embed_text(query, base.clone(), overrides)?;
     let key = embedding_key(&embedding);
-    let mut stmt = conn.prepare(
+    let store_base = base.unwrap_or_else(crate::paths::memory_home);
+    let store = VectorStore::open(&store_base)?;
+    let hits = store.query(&key, &embedding.vector, limit)?;
+    if hits.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = (0..hits.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
         r#"
-        SELECT c.id, c.document_id, c.text, c.heading, c.page, c.slide, c.token_count, d.title, d.path, e.vector_json
-        FROM embeddings e
-        JOIN chunks c ON c.id = e.chunk_id
-        JOIN documents d ON d.id = c.document_id
-        WHERE e.model = ?1
-        "#,
-    )?;
-    let mut rows = stmt
-        .query_map([key], |row| {
-            let vector_json: String = row.get(9)?;
-            let vector: Vec<f32> = serde_json::from_str(&vector_json).unwrap_or_default();
-            let mut result = row_to_search_result(row)?;
-            result.vector_score = cosine_similarity(&embedding.vector, &vector);
-            Ok(result)
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    rows.sort_by(|a, b| b.vector_score.partial_cmp(&a.vector_score).unwrap());
-    rows.truncate(limit);
-    Ok(rows)
+        SELECT c.id, c.document_id, c.text, c.heading, c.page, c.slide, c.token_count, d.title, d.path
+        FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE c.id IN ({placeholders})
+        "#
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let chunk_ids: Vec<String> = hits.iter().map(|h| h.chunk_id.clone()).collect();
+    let params: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let mut by_id: HashMap<String, SearchResult> = stmt
+        .query_map(&params[..], row_to_search_result_no_score)?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|row| (row.chunk_id.clone(), row))
+        .collect();
+    let mut results = Vec::with_capacity(hits.len());
+    for hit in hits {
+        if let Some(mut row) = by_id.remove(&hit.chunk_id) {
+            row.vector_score = (1.0 - hit.distance).clamp(0.0, 1.0);
+            results.push(row);
+        }
+    }
+    Ok(results)
+}
+
+fn row_to_search_result_no_score(row: &rusqlite::Row) -> rusqlite::Result<SearchResult> {
+    let title: String = row.get(7)?;
+    let heading: Option<String> = row.get(3)?;
+    let page: Option<i64> = row.get(4)?;
+    let slide: Option<i64> = row.get(5)?;
+    let citation = format!(
+        "{} ({})",
+        title,
+        page.map(|p| format!("page {p}"))
+            .or_else(|| slide.map(|s| format!("slide {s}")))
+            .or_else(|| heading.clone())
+            .unwrap_or_else(|| "document".to_string())
+    );
+    Ok(SearchResult {
+        chunk_id: row.get(0)?,
+        document_id: row.get(1)?,
+        text: row.get(2)?,
+        heading,
+        page,
+        slide,
+        token_count: row.get::<_, i64>(6)? as usize,
+        title,
+        path: row.get(8)?,
+        fts_score: 0.0,
+        vector_score: 0.0,
+        score: 0.0,
+        score_breakdown: serde_json::json!({}),
+        citation,
+    })
 }
 
 fn row_to_search_result(row: &rusqlite::Row) -> rusqlite::Result<SearchResult> {

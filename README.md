@@ -27,6 +27,16 @@ cargo build --release
 
 By default the local store is created in `.memoria/` under the current working directory. Set `MEM_HOME` to use another location.
 
+## Storage layout
+
+`.memoria/` contains:
+
+- `memory.sqlite` — documents, chunks, FTS, jobs, settings.
+- `lance/<provider>_<model>.lance/` — vectors per embedding model, stored in a LanceDB dataset. Each provider/model lives in its own table so multiple embedding configs can coexist.
+- `canonical/` and `originals/` — extracted Markdown/JSON and source files.
+
+Switching embedding provider or model requires `reindex` so the active Lance table contains vectors matching your queries.
+
 ## Privacy defaults
 
 - Documents, extracted text, chunks and embeddings stay local.

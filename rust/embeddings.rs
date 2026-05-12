@@ -117,10 +117,6 @@ pub fn local_hash_embedding(text: &str, dimensions: usize) -> Vec<f32> {
     normalize(vector)
 }
 
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
 pub fn default_model(provider: &str) -> &'static str {
     match provider {
         "openai" => "text-embedding-3-small",
