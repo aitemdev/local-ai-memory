@@ -15,6 +15,8 @@ pub fn ensure_store(base: Option<PathBuf>) -> Result<(Connection, DataPaths)> {
     Ok((conn, paths))
 }
 
+const SCHEMA_VERSION: i64 = 2;
+
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
@@ -116,6 +118,65 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
             (key, value),
         )?;
+    }
+
+    run_versioned_migrations(conn)?;
+    Ok(())
+}
+
+fn current_version(conn: &Connection) -> Result<i64> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'schema.version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(value.and_then(|v| v.parse().ok()).unwrap_or(1))
+}
+
+fn set_version(conn: &Connection, version: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('schema.version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+        [version.to_string()],
+    )?;
+    Ok(())
+}
+
+fn run_versioned_migrations(conn: &Connection) -> Result<()> {
+    let mut version = current_version(conn)?;
+    while version < SCHEMA_VERSION {
+        match version {
+            1 => {
+                let has_collection: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = 'collection_id'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|n| n > 0)
+                    .unwrap_or(false);
+                if !has_collection {
+                    conn.execute(
+                        "ALTER TABLE documents ADD COLUMN collection_id TEXT REFERENCES collections(id) ON DELETE SET NULL",
+                        [],
+                    )?;
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id)",
+                        [],
+                    )?;
+                }
+                version = 2;
+            }
+            _ => break,
+        }
+        set_version(conn, version)?;
+    }
+    if version < SCHEMA_VERSION {
+        set_version(conn, SCHEMA_VERSION)?;
+    } else if current_version(conn)? != SCHEMA_VERSION {
+        set_version(conn, SCHEMA_VERSION)?;
     }
     Ok(())
 }

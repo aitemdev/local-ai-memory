@@ -15,8 +15,14 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
+    time::Instant,
 };
+
+fn started_at() -> Instant {
+    static STARTED: OnceLock<Instant> = OnceLock::new();
+    *STARTED.get_or_init(Instant::now)
+}
 use tiny_http::{Header, Method, Request, Response, Server};
 
 #[derive(Deserialize)]
@@ -73,6 +79,7 @@ pub fn serve_daemon(port: u16) -> Result<()> {
     };
     crate::daemon::write_info(&info)?;
     let _guard = PidGuard;
+    let _ = started_at();
     let sink: EventSink = Arc::new(|event| log_event(&event));
     watch_manager::resume_all(sink);
     serve(port)
@@ -131,6 +138,39 @@ fn handle(mut request: Request, public_dir: &Path) -> Result<()> {
     let (path, query) = split_url(&url);
     let method = request.method().clone();
     match (&method, path.as_str()) {
+        (Method::Get, "/api/health") => {
+            let uptime = started_at().elapsed().as_secs();
+            let version = env!("CARGO_PKG_VERSION");
+            let status_value = status(None).ok();
+            let docs = status_value
+                .as_ref()
+                .and_then(|s| s.get("documents"))
+                .cloned()
+                .unwrap_or(json!([]));
+            let jobs = status_value
+                .as_ref()
+                .and_then(|s| s.get("jobs"))
+                .cloned()
+                .unwrap_or(json!([]));
+            let active = resolve_config(None, &HashMap::new(), true).ok();
+            json_response(
+                request,
+                &json!({
+                    "ok": true,
+                    "uptime_seconds": uptime,
+                    "version": version,
+                    "documents": docs,
+                    "jobs": jobs,
+                    "embedding": active.map(|c| json!({
+                        "provider": c.provider,
+                        "model": c.model,
+                        "dimensions": c.dimensions,
+                        "api_key_set": c.api_key.is_some(),
+                    })),
+                    "pid": std::process::id(),
+                }),
+            )
+        }
         (Method::Get, "/api/status") => json_response(request, &status(None)?),
         (Method::Get, "/api/search") => {
             let params = parse_query(&query);

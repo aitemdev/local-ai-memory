@@ -17,6 +17,9 @@ pub fn estimate_tokens(text: &str) -> usize {
     std::cmp::max(1, text.chars().count().div_ceil(4))
 }
 
+const MAX_TOKENS: usize = 620;
+const OVERLAP_TOKENS: usize = 60;
+
 pub fn chunk_markdown(markdown: &str) -> Vec<Chunk> {
     let sections = split_by_headings(markdown);
     let mut chunks = Vec::new();
@@ -32,11 +35,17 @@ pub fn chunk_markdown(markdown: &str) -> Vec<Chunk> {
         let mut buffer_tokens = 0usize;
         for paragraph in paragraphs {
             let tokens = estimate_tokens(paragraph);
-            if !buffer.is_empty() && buffer_tokens + tokens > 620 {
-                chunks.push(make_chunk(&buffer.join("\n\n"), heading.clone(), ordinal));
+            if !buffer.is_empty() && buffer_tokens + tokens > MAX_TOKENS {
+                let joined = buffer.join("\n\n");
+                chunks.push(make_chunk(&joined, heading.clone(), ordinal));
                 ordinal += 1;
+                let tail = tail_window(&joined, OVERLAP_TOKENS);
                 buffer.clear();
                 buffer_tokens = 0;
+                if !tail.is_empty() {
+                    buffer_tokens += estimate_tokens(&tail);
+                    buffer.push(tail);
+                }
             }
             buffer.push(paragraph.to_string());
             buffer_tokens += tokens;
@@ -47,6 +56,31 @@ pub fn chunk_markdown(markdown: &str) -> Vec<Chunk> {
         }
     }
     chunks
+}
+
+fn tail_window(text: &str, tokens_target: usize) -> String {
+    let chars_target = tokens_target * 4;
+    let trimmed = text.trim_end();
+    if trimmed.chars().count() <= chars_target {
+        return trimmed.to_string();
+    }
+    let bytes = trimmed.as_bytes();
+    let mut cut = bytes.len();
+    let mut counted = 0usize;
+    for (idx, _) in trimmed.char_indices().rev() {
+        counted += 1;
+        if counted >= chars_target {
+            cut = idx;
+            break;
+        }
+    }
+    let slice = &trimmed[cut..];
+    let aligned = slice
+        .find('\n')
+        .map(|n| &slice[n + 1..])
+        .unwrap_or(slice)
+        .trim_start();
+    aligned.to_string()
 }
 
 fn split_by_headings(markdown: &str) -> Vec<(Option<String>, String)> {

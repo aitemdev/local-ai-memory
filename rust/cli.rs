@@ -38,6 +38,12 @@ enum Command {
     Daemon(DaemonArgs),
     Watch { path: PathBuf },
     Tui,
+    Export { path: PathBuf },
+    Import {
+        path: PathBuf,
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Args)]
@@ -174,6 +180,14 @@ pub fn run() -> Result<()> {
         Command::Daemon(args) => run_daemon(args)?,
         Command::Watch { path } => crate::watcher::watch(&path)?,
         Command::Tui => crate::tui::run()?,
+        Command::Export { path } => {
+            let result = crate::backup::export(&path, None)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Import { path, force } => {
+            let result = crate::backup::import(&path, None, force)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
     }
     Ok(())
 }

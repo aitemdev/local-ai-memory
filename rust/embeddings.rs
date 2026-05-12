@@ -141,24 +141,46 @@ fn embed_openai_compatible(text: &str, config: &EmbeddingConfig) -> Result<Embed
         body["dimensions"] = serde_json::json!(dimensions);
     }
     let client = Client::new();
-    let mut request = client
-        .post(format!("{}/embeddings", config.base_url))
-        .json(&body);
-    if let Some(key) = &config.api_key {
-        request = request.bearer_auth(key);
+    let mut attempt = 0u32;
+    let max_attempts: u32 = 5;
+    loop {
+        let mut request = client
+            .post(format!("{}/embeddings", config.base_url))
+            .json(&body);
+        if let Some(key) = &config.api_key {
+            request = request.bearer_auth(key);
+        }
+        let response = request.send()?;
+        let status = response.status();
+        if status.is_success() {
+            let json: EmbeddingResponse = response.json()?;
+            let vector = json
+                .data
+                .first()
+                .ok_or_else(|| anyhow!("No embedding returned"))?
+                .embedding
+                .clone();
+            return Ok(Embedding {
+                provider: config.provider.clone(),
+                model: json.model.unwrap_or_else(|| config.model.clone()),
+                dimensions: vector.len(),
+                vector,
+            });
+        }
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        let body_text = response.text().unwrap_or_default();
+        attempt += 1;
+        if !retryable || attempt >= max_attempts {
+            return Err(anyhow!(
+                "{} embeddings failed ({}): {}",
+                config.provider,
+                status,
+                body_text
+            ));
+        }
+        let backoff_ms = 250u64.saturating_mul(1u64 << (attempt - 1));
+        std::thread::sleep(std::time::Duration::from_millis(backoff_ms.min(8000)));
     }
-    let response = request.send()?;
-    if !response.status().is_success() {
-        return Err(anyhow!("{} embeddings failed: {}", config.provider, response.text()?));
-    }
-    let json: EmbeddingResponse = response.json()?;
-    let vector = json.data.first().ok_or_else(|| anyhow!("No embedding returned"))?.embedding.clone();
-    Ok(Embedding {
-        provider: config.provider.clone(),
-        model: json.model.unwrap_or_else(|| config.model.clone()),
-        dimensions: vector.len(),
-        vector,
-    })
 }
 
 fn normalize(mut vector: Vec<f32>) -> Vec<f32> {
