@@ -1,4 +1,4 @@
-# Local AI Memory: Continuation Plan
+# Nolost: Continuation Plan
 
 ## Current State
 
@@ -9,7 +9,7 @@ The repository contains two implementations:
 
 GitHub repo:
 
-- `https://github.com/aitemdev/local-ai-memory`
+- `https://github.com/aitemdev/nolost`
 - Main branch: `main`
 
 ## What Works Today
@@ -65,8 +65,8 @@ Expected: all Node tests pass.
 Clone and compile Rust:
 
 ```bash
-git clone https://github.com/aitemdev/local-ai-memory.git
-cd local-ai-memory
+git clone https://github.com/aitemdev/nolost.git
+cd nolost
 cargo check
 ```
 
@@ -185,4 +185,4 @@ Rust can replace Node when all are true:
 - Docling may be slow on first run because it loads heavy dependencies/models.
 - Changing embedding provider/model requires `reindex`.
 - API keys must remain environment-only.
-- The GitHub repo is private under `aitemdev/local-ai-memory`.
+- The GitHub repo is private under `aitemdev/nolost`.

@@ -1,4 +1,4 @@
-use local_ai_memory::cli;
+use nolost::cli;
 
 fn main() {
     if let Err(error) = cli::run() {

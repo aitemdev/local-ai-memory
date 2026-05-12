@@ -1,4 +1,4 @@
-// Local AI Memory — desktop frontend
+// Nolost — desktop frontend
 // Talks to the Rust core via window.__TAURI__.core.invoke.
 
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);

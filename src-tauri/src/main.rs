@@ -2,7 +2,7 @@
 
 mod watch_service;
 
-use local_ai_memory::{
+use nolost::{
     embeddings::{default_model, resolve_config, EmbeddingConfig},
     extractors::parser_status,
     indexer::{
@@ -202,7 +202,7 @@ fn app_set_embedding(
 
 #[tauri::command]
 fn app_init_store() -> Result<String, String> {
-    let path = local_ai_memory::indexer::init_store(None).map_err(stringify)?;
+    let path = nolost::indexer::init_store(None).map_err(stringify)?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -263,5 +263,5 @@ fn main() {
             app_init_store
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Local AI Memory");
+        .expect("error while running Nolost");
 }

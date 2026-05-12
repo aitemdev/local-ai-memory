@@ -1,4 +1,4 @@
-use local_ai_memory::{
+use nolost::{
     extractors::supported_extension,
     indexer::{collect_files, ingest_file},
     settings::{get_settings, set_settings},

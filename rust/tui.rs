@@ -89,7 +89,7 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
 
     let titles: Vec<Line> = TABS.iter().map(|t| Line::from(*t)).collect();
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title("local-ai-memory"))
+        .block(Block::default().borders(Borders::ALL).title("nolost"))
         .select(app.tab)
         .style(Style::default().fg(Color::Gray))
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));

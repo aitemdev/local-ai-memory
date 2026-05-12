@@ -1,4 +1,4 @@
-# Local AI Memory
+# Nolost
 
 Local-first personal memory for AI tools. It ingests documents, creates canonical Markdown/JSON, chunks and indexes content locally, exposes hybrid search through a CLI, and serves an MCP server so compatible AI clients can query your memory with citations.
 
@@ -166,18 +166,18 @@ When the daemon is up, the CLI auto-detects it and routes `mem status`, `mem sea
 **Linux (systemd user unit):**
 
 ```bash
-install -Dm644 bin/local-ai-memory.service ~/.config/systemd/user/local-ai-memory.service
+install -Dm644 bin/nolost.service ~/.config/systemd/user/nolost.service
 systemctl --user daemon-reload
-systemctl --user enable --now local-ai-memory.service
-journalctl --user -u local-ai-memory -f
+systemctl --user enable --now nolost.service
+journalctl --user -u nolost -f
 ```
 
 **macOS (launchd):**
 
 ```bash
-install -Dm644 bin/dev.aitemdev.local-ai-memory.plist ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
-launchctl load ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
-launchctl list | grep local-ai-memory
+install -Dm644 bin/dev.aitemdev.nolost.plist ~/Library/LaunchAgents/dev.aitemdev.nolost.plist
+launchctl load ~/Library/LaunchAgents/dev.aitemdev.nolost.plist
+launchctl list | grep nolost
 ```
 
 Both units assume `mem` is on `$PATH`. Edit the unit file for a custom binary location.
@@ -188,7 +188,7 @@ A Tauri 2 desktop shell sits in `src-tauri/` with the frontend in `dist/`. It re
 
 ```bash
 cargo build --manifest-path src-tauri/Cargo.toml
-./target/debug/local-ai-memory   # dev run
+./target/debug/nolost   # dev run
 ```
 
 The UI follows a macOS aesthetic: 220 px sidebar, traffic-light inset overlay titlebar, three sections (Search · Library · Settings), drag-and-drop ingest, instant search with citations, embedding-provider switcher and parser diagnostics. Light/dark mode follows the system. No npm; everything ships from `dist/` as static assets.

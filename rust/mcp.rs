@@ -53,7 +53,7 @@ fn handle_request(message: &Value) -> Result<Value> {
         "initialize" => Ok(json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "local-ai-memory", "version": env!("CARGO_PKG_VERSION") }
+            "serverInfo": { "name": "nolost", "version": env!("CARGO_PKG_VERSION") }
         })),
         "tools/list" => Ok(json!({ "tools": tool_descriptors() })),
         "tools/call" => handle_tool_call(message.get("params").cloned().unwrap_or(Value::Null)),

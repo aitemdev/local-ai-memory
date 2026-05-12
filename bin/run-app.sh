@@ -13,5 +13,5 @@ export G_MESSAGES_DEBUG=all
 
 cd "$(dirname "$0")/.."
 echo "log -> $LOG"
-./src-tauri/target/debug/local-ai-memory 2>&1 | tee -a "$LOG"
+./src-tauri/target/debug/nolost 2>&1 | tee -a "$LOG"
 echo "--- exit: $? ---" >> "$LOG"

@@ -1,10 +1,10 @@
 [package]
-name = "local-ai-memory"
+name = "nolost"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "local_ai_memory"
+name = "nolost"
 path = "rust/lib.rs"
 
 [[bin]]

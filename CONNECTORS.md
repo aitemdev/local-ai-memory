@@ -1,6 +1,6 @@
 # Conectores
 
-Cómo enchufar Local AI Memory a cada cliente MCP / agente. Todos comparten el mismo modelo: el cliente arranca `mem serve --mcp` como subproceso por stdio JSON-RPC.
+Cómo enchufar Nolost a cada cliente MCP / agente. Todos comparten el mismo modelo: el cliente arranca `mem serve --mcp` como subproceso por stdio JSON-RPC.
 
 ---
 
@@ -43,7 +43,7 @@ Cómo enchufar Local AI Memory a cada cliente MCP / agente. Todos comparten el m
 | `OPENROUTER_API_KEY` | Solo si embeddings.provider = openrouter |
 | `MEM_PYTHON` | Path a python para parsers Docling/MarkItDown |
 
-Ruta canónica sugerida: `~/Library/Application Support/local-ai-memory` (macOS) o `~/.local/share/local-ai-memory` (Linux).
+Ruta canónica sugerida: `~/Library/Application Support/nolost` (macOS) o `~/.local/share/nolost` (Linux).
 
 ---
 
@@ -61,7 +61,7 @@ Archivo de config:
       "command": "/usr/local/bin/mem",
       "args": ["serve", "--mcp"],
       "env": {
-        "MEM_HOME": "/Users/TU_USER/Library/Application Support/local-ai-memory"
+        "MEM_HOME": "/Users/TU_USER/Library/Application Support/nolost"
       }
     }
   }
@@ -78,7 +78,7 @@ Claude Code tiene MCP via `claude mcp add`:
 
 ```bash
 claude mcp add local-memory --transport stdio \
-  --env MEM_HOME=/Users/TU_USER/.local/share/local-ai-memory \
+  --env MEM_HOME=/Users/TU_USER/.local/share/nolost \
   -- /usr/local/bin/mem serve --mcp
 ```
 
@@ -99,7 +99,7 @@ Alternativa por archivo (`~/.claude/config.json` o `~/.config/claude/config.json
       "type": "stdio",
       "command": "/usr/local/bin/mem",
       "args": ["serve", "--mcp"],
-      "env": { "MEM_HOME": "/Users/TU_USER/.local/share/local-ai-memory" }
+      "env": { "MEM_HOME": "/Users/TU_USER/.local/share/nolost" }
     }
   }
 }
@@ -118,7 +118,7 @@ Alternativa por archivo (`~/.claude/config.json` o `~/.config/claude/config.json
       "command": "/usr/local/bin/mem",
       "args": ["serve", "--mcp"],
       "env": {
-        "MEM_HOME": "/Users/TU_USER/Library/Application Support/local-ai-memory"
+        "MEM_HOME": "/Users/TU_USER/Library/Application Support/nolost"
       }
     }
   }
@@ -139,7 +139,7 @@ command = "/usr/local/bin/mem"
 args = ["serve", "--mcp"]
 
 [mcp_servers.local-memory.env]
-MEM_HOME = "/Users/TU_USER/.local/share/local-ai-memory"
+MEM_HOME = "/Users/TU_USER/.local/share/nolost"
 ```
 
 Reinicia el CLI. Las tools aparecen disponibles para Codex.
@@ -158,7 +158,7 @@ Pi agent reads MCP servers from `~/.pi/mcp.json` (o equivalente en su config dir
       "command": "/usr/local/bin/mem",
       "args": ["serve", "--mcp"],
       "env": {
-        "MEM_HOME": "/home/TU_USER/.local/share/local-ai-memory"
+        "MEM_HOME": "/home/TU_USER/.local/share/nolost"
       }
     }
   }
@@ -178,11 +178,11 @@ OpenClaw Gateway carga servers MCP a través de su `config.json` (ubicación tí
   "mcp_servers": [
     {
       "id": "local-memory",
-      "name": "Local AI Memory",
+      "name": "Nolost",
       "command": "/usr/local/bin/mem",
       "args": ["serve", "--mcp"],
       "env": {
-        "MEM_HOME": "/home/TU_USER/.local/share/local-ai-memory"
+        "MEM_HOME": "/home/TU_USER/.local/share/nolost"
       }
     }
   ]
@@ -208,7 +208,7 @@ Protocolo:
 // → initialize
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 // ← capabilities
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"local-ai-memory","version":"0.1.0"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"nolost","version":"0.1.0"}}}
 
 // → tools/list
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}

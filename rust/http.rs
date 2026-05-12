@@ -50,7 +50,7 @@ struct EmbeddingSetBody {
 pub fn serve(port: u16) -> Result<()> {
     let public_dir = std::env::current_dir()?.join("public");
     let server = Server::http(("127.0.0.1", port)).map_err(|e| anyhow::anyhow!("{e}"))?;
-    eprintln!("local-ai-memory HTTP on http://localhost:{port}");
+    eprintln!("nolost HTTP on http://localhost:{port}");
     for request in server.incoming_requests() {
         if let Err(error) = handle(request, &public_dir) {
             eprintln!("request error: {error:?}");

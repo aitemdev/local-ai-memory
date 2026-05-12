@@ -1,10 +1,10 @@
 [package]
-name = "local-ai-memory-desktop"
+name = "nolost-desktop"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "local-ai-memory"
+name = "nolost"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -12,7 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
-local-ai-memory = { path = "..", default-features = false }
+nolost = { path = "..", default-features = false }
 notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

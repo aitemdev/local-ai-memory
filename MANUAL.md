@@ -1,4 +1,4 @@
-# Manual de Local AI Memory
+# Manual de Nolost
 
 Guía paso a paso para usar la herramienta sin haber leído el código.
 
@@ -6,7 +6,7 @@ Guía paso a paso para usar la herramienta sin haber leído el código.
 
 ## Qué es esto
 
-Local AI Memory es una **memoria privada** para asistentes de IA. Coges una carpeta con tus documentos (notas, PDFs, contratos, RFCs, lo que sea), la indexa en tu máquina, y luego puedes:
+Nolost es una **memoria privada** para asistentes de IA. Coges una carpeta con tus documentos (notas, PDFs, contratos, RFCs, lo que sea), la indexa en tu máquina, y luego puedes:
 
 - Buscar texto con citas (qué archivo, qué chunk, qué heading)
 - Conectarla a Claude Code / Cursor / ChatGPT vía MCP para que esos agentes consulten tu memoria con citas reales
@@ -39,8 +39,8 @@ Sin esto el resto no se entiende.
 Requisitos: Rust >= 1.84 con `cargo`. Opcional: Python para PDFs/DOCX/XLSX/PPTX.
 
 ```bash
-git clone https://github.com/aitemdev/local-ai-memory.git
-cd local-ai-memory
+git clone https://github.com/aitemdev/nolost.git
+cd nolost
 cargo build --release
 ```
 
@@ -388,17 +388,17 @@ curl "http://localhost:7456/api/search?q=pricing&budget=low" | jq
 **Linux (systemd user):**
 
 ```bash
-install -Dm644 bin/local-ai-memory.service ~/.config/systemd/user/local-ai-memory.service
+install -Dm644 bin/nolost.service ~/.config/systemd/user/nolost.service
 systemctl --user daemon-reload
-systemctl --user enable --now local-ai-memory.service
-journalctl --user -u local-ai-memory -f       # ver logs
+systemctl --user enable --now nolost.service
+journalctl --user -u nolost -f       # ver logs
 ```
 
 **macOS (launchd):**
 
 ```bash
-install -Dm644 bin/dev.aitemdev.local-ai-memory.plist ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
-launchctl load ~/Library/LaunchAgents/dev.aitemdev.local-ai-memory.plist
+install -Dm644 bin/dev.aitemdev.nolost.plist ~/Library/LaunchAgents/dev.aitemdev.nolost.plist
+launchctl load ~/Library/LaunchAgents/dev.aitemdev.nolost.plist
 ```
 
 Edita el archivo si tu `mem` no está en `/usr/local/bin/mem` o `~/.local/bin/mem`.
@@ -412,7 +412,7 @@ Edita el archivo si tu `mem` no está en `/usr/local/bin/mem` o `~/.local/bin/me
 | Probar rápido, una vez | `mem add` + `mem search` |
 | Carpeta que cambia mucho, una sesión de trabajo | `mem watch` |
 | Carpeta permanente, agentes IA leyendo siempre | Daemon con autostart |
-| Quiero ver mis docs visualmente, drag-drop | App desktop (`./src-tauri/target/debug/local-ai-memory`) |
+| Quiero ver mis docs visualmente, drag-drop | App desktop (`./src-tauri/target/debug/nolost`) |
 | Necesito búsqueda semántica buena | `mem embeddings set --provider ollama` + reindex |
 | Conectar Claude Code | `mem serve --mcp` registrado en claude_desktop_config.json |
 | API para automatizar | Daemon + curl al puerto |
@@ -425,7 +425,7 @@ Build:
 
 ```bash
 cargo build --manifest-path src-tauri/Cargo.toml --release
-./src-tauri/target/release/local-ai-memory
+./src-tauri/target/release/nolost
 ```
 
 Tres secciones (atajos ⌘1/⌘2/⌘3):
@@ -518,7 +518,7 @@ Era un bug antiguo (>200 docs bloqueaba IPC). Está fixed: ingest corre en threa
 ### Wayland error 71 al arrancar desktop
 
 ```bash
-LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./src-tauri/target/release/local-ai-memory
+LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./src-tauri/target/release/nolost
 ```
 
 O usa el wrapper:
@@ -535,8 +535,8 @@ O usa el wrapper:
 # Una vez en la vida:
 cargo build --release
 cp target/release/mem ~/.local/bin/
-install -Dm644 bin/local-ai-memory.service ~/.config/systemd/user/
-systemctl --user enable --now local-ai-memory.service
+install -Dm644 bin/nolost.service ~/.config/systemd/user/
+systemctl --user enable --now nolost.service
 
 # Ollama para semántica real (opcional pero recomendado):
 ollama pull nomic-embed-text
